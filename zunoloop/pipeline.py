@@ -2,14 +2,15 @@
 import json
 import os
 import re
+import argparse
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
-from .buffer import create_video_post, slot_has_post
-from .cloudinary import upload_video
+from .buffer import create_video_post, organization_for_channels, slot_has_post
 from .render import render_video
 
 
@@ -133,25 +134,41 @@ def plan(now):
     return entries
 
 
-def main():
+def prepare():
     now = datetime.now(timezone.utc)
     output = Path("output")
     output.mkdir(exist_ok=True)
     entries = plan(now)
-    live = os.getenv("LIVE_PUBLISH", "").lower() == "true"
-    if live:
-        keys = ("BUFFER_API_KEY", "BUFFER_ORGANIZATION_ID", "BUFFER_INSTAGRAM_CHANNEL_ID",
-                "BUFFER_TIKTOK_CHANNEL_ID", "BUFFER_YOUTUBE_CHANNEL_ID",
-                "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET")
-        missing = [name for name in keys if not os.getenv(name)]
-        if missing:
-            raise RuntimeError("Missing setup: " + ", ".join(missing))
     for entry in entries:
         filename = f"{now.astimezone(ZoneInfo('Asia/Jakarta')).date()}-{entry['language']}-{entry['slot']}.mp4"
         path = output / filename
         render_video(entry["story"], entry["language"], path)
-        if not live:
-            continue
+        entry["file"] = filename
+    (output / "manifest.json").write_text(json.dumps(entries, ensure_ascii=False, indent=2))
+    print("Created four language-specific previews")
+
+
+def publish():
+    if os.getenv("LIVE_PUBLISH", "").lower() != "true":
+        raise RuntimeError("LIVE_PUBLISH must be true for scheduling")
+    keys = ("BUFFER_API_KEY", "BUFFER_INSTAGRAM_CHANNEL_ID",
+            "BUFFER_TIKTOK_CHANNEL_ID", "BUFFER_YOUTUBE_CHANNEL_ID", "MEDIA_BASE_URL")
+    missing = [name for name in keys if not os.getenv(name)]
+    if missing:
+        raise RuntimeError("Missing setup: " + ", ".join(missing))
+    base_url = os.environ["MEDIA_BASE_URL"].rstrip("/")
+    if not base_url.startswith("https://"):
+        raise RuntimeError("MEDIA_BASE_URL must be HTTPS")
+    expected = {os.environ["BUFFER_INSTAGRAM_CHANNEL_ID"]: "instagram",
+                os.environ["BUFFER_TIKTOK_CHANNEL_ID"]: "tiktok",
+                os.environ["BUFFER_YOUTUBE_CHANNEL_ID"]: "youtube"}
+    org_id = organization_for_channels(os.environ["BUFFER_API_KEY"], expected)
+    entries = json.loads(Path("output/manifest.json").read_text())
+    for entry in entries:
+        filename = entry["file"]
+        if Path(filename).name != filename or not filename.endswith(".mp4"):
+            raise RuntimeError("Invalid filename in manifest")
+        url = base_url + "/media/" + quote(filename)
         channel_specs = ([
             ("BUFFER_INSTAGRAM_CHANNEL_ID", {"instagram": {"type": "reel", "shouldShareToFeed": True,
                                                            "isAiGenerated": True}}),
@@ -162,18 +179,24 @@ def main():
                                                            "madeForKids": False}}),
         ])
         pending = [(os.getenv(ch), meta) for ch, meta in channel_specs
-                   if not slot_has_post(os.environ["BUFFER_API_KEY"], os.environ["BUFFER_ORGANIZATION_ID"],
+                   if not slot_has_post(os.environ["BUFFER_API_KEY"], org_id,
                                         os.getenv(ch), entry["dueAt"])]
         if not pending:
             continue
-        url = upload_video(path, os.environ["CLOUDINARY_CLOUD_NAME"],
-                           os.environ["CLOUDINARY_API_KEY"], os.environ["CLOUDINARY_API_SECRET"])
+        with urlopen(Request(url, headers={"User-Agent": "ZunoLoopPublisher/1.0"}), timeout=30) as response:
+            if response.status != 200 or "video/mp4" not in response.headers.get("Content-Type", ""):
+                raise RuntimeError("Public media URL is not serving MP4: " + url)
         for channel_id, metadata in pending:
             post = create_video_post(os.environ["BUFFER_API_KEY"], channel_id, url,
                                      entry["story"]["caption"], entry["dueAt"], metadata)
             print(f"Scheduled channel {channel_id}: {post['id']} at {post['dueAt']}")
-    (output / "manifest.json").write_text(json.dumps(entries, ensure_ascii=False, indent=2))
-    print("Created four language-specific videos; live scheduling=" + str(live))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--publish", action="store_true", help="Schedule the prepared videos after public hosting")
+    args = parser.parse_args()
+    publish() if args.publish else prepare()
 
 
 if __name__ == "__main__":

@@ -5,6 +5,18 @@ from urllib.request import Request, urlopen
 
 ENDPOINT = "https://api.buffer.com"
 
+ORGANIZATIONS_QUERY = """
+query GetOrganizations {
+  account { organizations { id } }
+}
+"""
+
+CHANNELS_QUERY = """
+query GetChannels($organizationId: OrganizationId!) {
+  channels(input: { organizationId: $organizationId }) { id service }
+}
+"""
+
 POSTS_QUERY = """
 query PostsForSlot($input: PostsInput!) {
   posts(first: 100, input: $input) {
@@ -38,6 +50,22 @@ def _graphql(api_key, query, variables):
     if result.get("errors"):
         raise RuntimeError("Buffer GraphQL error: " + str(result["errors"]))
     return result["data"]
+
+
+def organization_for_channels(api_key, expected_channels):
+    """Find the one Buffer organization containing the configured channels."""
+    orgs = _graphql(api_key, ORGANIZATIONS_QUERY, {})["account"]["organizations"]
+    matches = []
+    for org in orgs:
+        channels = _graphql(api_key, CHANNELS_QUERY,
+                            {"organizationId": org["id"]})["channels"]
+        by_id = {channel["id"]: channel["service"].lower() for channel in channels}
+        if all(by_id.get(channel_id) == service
+               for channel_id, service in expected_channels.items()):
+            matches.append(org["id"])
+    if len(matches) != 1:
+        raise RuntimeError("Configured Instagram, TikTok and YouTube channels do not uniquely match one Buffer organization")
+    return matches[0]
 
 
 def slot_has_post(api_key, organization_id, channel_id, due_at):
