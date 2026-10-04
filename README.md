@@ -1,6 +1,6 @@
 # ZunoLoop: Agnes Video to Buffer
 
-Daily at 07:00 WIB, GitHub Actions reads Google Trends RSS for Indonesia and the US, chooses two topics from the previous 24 hours per market, writes original localized scripts with Agnes text, generates four vertical 12-second videos using Agnes Video 2.5 Flash, and adds spoken narration and captions. The two Indonesian videos are shared to both Instagram and TikTok at 12:00 and 20:00 WIB. The two English videos go to YouTube at 06:00 and 08:00 WIB the next day. Buffer receives six scheduled posts after generation succeeds. Missed slots move to the next day.
+Daily at 07:00 WIB, GitHub Actions reads Google Trends RSS for Indonesia and the US, chooses two topics from the previous 24 hours per market, writes original localized scripts with Agnes text, generates four vertical 8-second videos using Agnes Video 2.5 Flash, and adds spoken narration and captions. The two Indonesian videos are shared to both Instagram and TikTok at 12:00 and 20:00 WIB. The two English videos go to YouTube at 06:00 and 08:00 WIB the next day. Buffer receives six scheduled posts after generation succeeds. Missed slots move to the next day.
 
 ## Current status
 
