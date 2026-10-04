@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 from datetime import date, datetime, timezone
 
-from zunoloop.pipeline import choose_objects, next_slot
+from zunoloop.pipeline import choose_objects, next_slot, plan
 from zunoloop.buffer import organization_for_channels
 
 
@@ -39,6 +39,13 @@ class PlanTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             organization_for_channels("key", {"ig": "instagram", "tt": "tiktok",
                                               "yt": "youtube"})
+
+    @patch("zunoloop.pipeline.trends")
+    def test_indonesia_and_us_choose_their_own_topics(self, trends):
+        trends.side_effect = [["Spons lucu viral"], ["Umbrella hack"]]
+        entries = plan(datetime(2026, 10, 4, 2, 0, tzinfo=timezone.utc))
+        self.assertEqual([e["object"] for e in entries if e["language"] == "id"][0], "spons")
+        self.assertEqual([e["object"] for e in entries if e["language"] == "en"][0], "umbrella")
 
 
 if __name__ == "__main__":
