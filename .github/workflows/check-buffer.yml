@@ -1,0 +1,42 @@
+name: Check Buffer connection
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      BUFFER_INSTAGRAM_CHANNEL_ID: ${{ vars.BUFFER_INSTAGRAM_CHANNEL_ID }}
+      BUFFER_TIKTOK_CHANNEL_ID: ${{ vars.BUFFER_TIKTOK_CHANNEL_ID }}
+      BUFFER_YOUTUBE_CHANNEL_ID: ${{ vars.BUFFER_YOUTUBE_CHANNEL_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read account, channels, and future queue slots
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime, timedelta, timezone
+          from zunoloop.buffer import organization_for_channels, slot_has_post
+
+          key = os.environ['BUFFER_API_KEY']
+          channels = {
+              os.environ['BUFFER_INSTAGRAM_CHANNEL_ID']: 'instagram',
+              os.environ['BUFFER_TIKTOK_CHANNEL_ID']: 'tiktok',
+              os.environ['BUFFER_YOUTUBE_CHANNEL_ID']: 'youtube',
+          }
+          if not key or len(channels) != 3:
+              raise RuntimeError('Buffer key or channel IDs are missing')
+          org = organization_for_channels(key, channels)
+          future = (datetime.now(timezone.utc) + timedelta(days=30)).replace(
+              minute=0, second=0, microsecond=0).isoformat().replace('+00:00', 'Z')
+          for channel in channels:
+              slot_has_post(key, org, channel, future)
+          print('Buffer key, three channels, and read-only queue queries verified')
+          PY
