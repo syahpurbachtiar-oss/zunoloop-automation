@@ -118,19 +118,20 @@ def next_slot(now, zone, hour, minute):
 def plan(now):
     local_day = now.astimezone(ZoneInfo("Asia/Jakarta")).date()
     topics_id, topics_en = trends("ID"), trends("US")
-    chosen = choose_objects(local_day, topics_id + topics_en)
     entries = []
-    for index, obj in enumerate(chosen):
-        for lang in ("id", "en"):
-            story = ai_story(obj, lang, topics_id if lang == "id" else topics_en, index + 1)
-            zone = "Asia/Jakarta" if lang == "id" else "America/New_York"
-            hour = (12, 20)[index] if lang == "id" else (19, 21)[index]
+    for lang, topics, zone, hours in (
+        ("id", topics_id, "Asia/Jakarta", (12, 20)),
+        ("en", topics_en, "America/New_York", (19, 21)),
+    ):
+        for index, obj in enumerate(choose_objects(local_day, topics)):
+            story = ai_story(obj, lang, topics, index + 1)
+            hour = hours[index]
             entries.append({"language": lang, "slot": index + 1,
                             "object": obj[0] if lang == "id" else obj[1],
                             "story": story,
                             "dueAt": next_slot(now, zone, hour, 0),
                             "trendMatched": any(obj[0] in s.casefold() or obj[1] in s.casefold()
-                                                for s in (topics_id if lang == "id" else topics_en))})
+                                                for s in topics)})
     return entries
 
 
