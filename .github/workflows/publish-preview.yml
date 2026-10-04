@@ -1,0 +1,79 @@
+name: Publish validated ZunoLoop preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Run ID containing four generated Agnes videos
+        required: true
+        type: string
+
+jobs:
+  publish:
+    if: vars.LIVE_PUBLISH == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      BUFFER_INSTAGRAM_CHANNEL_ID: ${{ vars.BUFFER_INSTAGRAM_CHANNEL_ID }}
+      BUFFER_TIKTOK_CHANNEL_ID: ${{ vars.BUFFER_TIKTOK_CHANNEL_ID }}
+      BUFFER_YOUTUBE_CHANNEL_ID: ${{ vars.BUFFER_YOUTUBE_CHANNEL_ID }}
+      LIVE_PUBLISH: ${{ vars.LIVE_PUBLISH }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate source run identifier
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: zunoloop-${{ inputs.source_run_id }}
+          path: output/
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+      - name: Publish verified media to GitHub Pages
+        run: |
+          mkdir -p site/media
+          cp output/*.mp4 site/media/
+          python - <<'PY'
+          from datetime import date, timedelta
+          from pathlib import Path
+          cutoff = date.today() - timedelta(days=7)
+          for video in Path('site/media').glob('*.mp4'):
+              try:
+                  if date.fromisoformat(video.name[:10]) < cutoff:
+                      video.unlink()
+              except ValueError:
+                  raise RuntimeError('Unexpected media filename: ' + video.name)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add site/media
+          if ! git diff --cached --quiet; then git commit -m "Update public ZunoLoop video media" && git push; fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Schedule six posts via Buffer
+        env:
+          MEDIA_BASE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsSI "${MEDIA_BASE_URL%/}/media/$(find output -maxdepth 1 -name '*.mp4' -printf '%f\n' | head -1)" >/dev/null; then break; fi
+            sleep 10
+          done
+          python -m zunoloop.pipeline --publish
