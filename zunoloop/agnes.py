@@ -59,10 +59,10 @@ def create_story(topic, language):
         f"Include the EXACT search phrase {topic!r} somewhere in title or caption, and "
         "visually connect the scene to that phrase."
     )
-    for attempt in range(3):
-        reminder = (" Your last answer omitted the exact search phrase from title/caption. "
-                    f"This time include {topic!r} verbatim in title or caption."
-                    if attempt else "")
+    rejection = ""
+    for attempt in range(5):
+        reminder = (f" Your previous response was rejected: {rejection}. Correct that issue "
+                    f"and keep {topic!r} verbatim in title or caption." if attempt else "")
         data = request_json("/v1/chat/completions", {"model": "agnes-2.5-flash",
                             "messages": [{"role": "user", "content": prompt + reminder}],
                             "stream": False})
@@ -76,28 +76,36 @@ def create_story(topic, language):
         try:
             story = json.loads(content.strip())
         except json.JSONDecodeError:
+            rejection = "Return valid JSON only"
             continue
         if any(not isinstance(story.get(field), str) or not 2 < len(story[field]) <= limit
                for field, limit in (("title", 80), ("caption", 220), ("voice", 350),
                                     ("visual_prompt", 900))):
+            rejection = "Use exactly the required fields and character limits"
             continue
         if len(story["voice"].split()) > 35 or not 2 <= story["caption"].count("#") <= 4:
+            rejection = "Voice must be at most 35 words and caption must have 2 to 4 hashtags"
             continue
         if " vs " in topic.casefold() and not any(
             word in story["visual_prompt"].casefold()
             for word in ("sport", "match", "game", "pitch", "field", "stadium",
                          "arena", "court", "football", "soccer", "baseball",
-                         "pertandingan", "lapangan", "stadion", "sepak bola", "bisbol")
+                         "fan", "jersey", "player", "ball", "goal", "race",
+                         "pertandingan", "lapangan", "stadion", "sepak bola", "bisbol",
+                         "penonton", "pemain", "bola", "balap")
         ):
+            rejection = "A vs B search is a sports matchup; show a sports scene, not a pun"
             continue
         if "motogp" in topic.casefold() and not any(
             word in story["visual_prompt"].casefold()
             for word in ("track", "circuit", "sirkuit", "lintasan")
         ):
+            rejection = "Motogp needs a closed racing track, not a public street"
             continue
         if topic.casefold() in (story["title"] + " " + story["caption"]).casefold():
             return story
-    raise RuntimeError("Agnes did not provide a valid trend-grounded story in three attempts")
+        rejection = "The exact search phrase is missing from the title and caption"
+    raise RuntimeError(f"Agnes did not provide a valid story for {topic!r}: {rejection}")
 
 
 def generate_video(visual_prompt, destination):
