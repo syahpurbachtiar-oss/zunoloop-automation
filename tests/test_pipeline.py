@@ -2,15 +2,11 @@ import unittest
 from unittest.mock import patch
 from datetime import date, datetime, timezone
 
-from zunoloop.pipeline import choose_objects, next_slot, plan
+from zunoloop.pipeline import next_slot, plan
 from zunoloop.buffer import organization_for_channels
 
 
 class PlanTests(unittest.TestCase):
-    def test_trend_match_ranks_object_first(self):
-        objects = choose_objects(date(2026, 10, 4), ["Spons lucu viral", "gempa hari ini"])
-        self.assertEqual(objects[0], ("spons", "sponge"))
-
     def test_future_slot_uses_local_zone(self):
         now = datetime(2026, 10, 4, 2, 0, tzinfo=timezone.utc)
         self.assertEqual(next_slot(now, "Asia/Jakarta", 12, 0), "2026-10-04T05:00:00Z")
@@ -40,12 +36,23 @@ class PlanTests(unittest.TestCase):
             organization_for_channels("key", {"ig": "instagram", "tt": "tiktok",
                                               "yt": "youtube"})
 
+    @patch.dict("os.environ", {}, clear=True)
+    def test_missing_agnes_key_cannot_generate_templates(self):
+        with self.assertRaisesRegex(RuntimeError, "AGNES_API_KEY"):
+            plan(datetime(2026, 10, 4, 2, 0, tzinfo=timezone.utc))
+
+    @patch.dict("os.environ", {"AGNES_API_KEY": "test"})
+    @patch("zunoloop.pipeline.create_story", return_value={"title": "test"})
     @patch("zunoloop.pipeline.trends")
-    def test_indonesia_and_us_choose_their_own_topics(self, trends):
-        trends.side_effect = [["Spons lucu viral"], ["Umbrella hack"]]
+    def test_two_localized_trend_sources_and_youtube_slots(self, trends, story):
+        trends.side_effect = [[{"title": "topik 1"}, {"title": "topik 2"}],
+                              [{"title": "topic 1"}, {"title": "topic 2"}]]
         entries = plan(datetime(2026, 10, 4, 2, 0, tzinfo=timezone.utc))
-        self.assertEqual([e["object"] for e in entries if e["language"] == "id"][0], "spons")
-        self.assertEqual([e["object"] for e in entries if e["language"] == "en"][0], "umbrella")
+        self.assertEqual([e["trend"]["title"] for e in entries],
+                         ["topik 1", "topik 2", "topic 1", "topic 2"])
+        self.assertEqual([e["dueAt"] for e in entries],
+                         ["2026-10-04T05:00:00Z", "2026-10-04T13:00:00Z",
+                          "2026-10-04T23:00:00Z", "2026-10-05T01:00:00Z"])
 
 
 if __name__ == "__main__":
