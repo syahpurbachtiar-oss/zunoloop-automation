@@ -112,10 +112,18 @@ def publish():
                 os.environ["BUFFER_YOUTUBE_CHANNEL_ID"]: "youtube"}
     org_id = organization_for_channels(os.environ["BUFFER_API_KEY"], expected)
     entries = json.loads(Path("output/manifest.json").read_text())
-    if len(entries) != 4 or any(entry.get("generator") != "agnes-video-2.5-flash"
-                               or not entry.get("trend", {}).get("publishedAt") for entry in entries):
+    if len(entries) != 4 or sorted(entry.get("language") for entry in entries) != ["en", "en", "id", "id"] or any(
+        entry.get("generator") != "agnes-video-2.5-flash"
+        or not entry.get("trend", {}).get("publishedAt") for entry in entries
+    ):
         raise RuntimeError("Only four source-grounded Agnes videos can be published")
+    now = datetime.now(timezone.utc)
     for entry in entries:
+        trend_time = parsedate_to_datetime(entry["trend"]["publishedAt"]).astimezone(timezone.utc)
+        age = now - trend_time
+        due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
+        if not timedelta(0) <= age <= timedelta(hours=36) or due <= now + timedelta(minutes=15):
+            raise RuntimeError("Trend is stale or scheduled slot is too close; refusing publication")
         filename = entry["file"]
         if Path(filename).name != filename or not filename.endswith(".mp4"):
             raise RuntimeError("Invalid filename in manifest")
