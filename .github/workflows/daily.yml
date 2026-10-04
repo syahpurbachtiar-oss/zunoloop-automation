@@ -2,6 +2,11 @@ name: ZunoLoop daily video pipeline
 
 on:
   workflow_dispatch:
+    inputs:
+      resume_run_id:
+        description: Optional prior run with incomplete Agnes videos
+        required: false
+        type: string
   schedule:
     # 09:00 WIB. Buffer slots: ID 12:00/20:00, YouTube next 06:00/08:00 WIB.
     - cron: '0 2 * * *'
@@ -14,6 +19,9 @@ jobs:
   create:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    permissions:
+      actions: read
+      contents: read
     env:
       AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
     steps:
@@ -25,14 +33,29 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng fonts-dejavu-core
       - name: Install Python packages
         run: python -m pip install -r requirements.txt
+      - name: Validate prior run identifier
+        if: inputs.resume_run_id != ''
+        env:
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          [[ "$RESUME_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+      - uses: actions/download-artifact@v4
+        if: inputs.resume_run_id != ''
+        with:
+          name: zunoloop-${{ inputs.resume_run_id }}
+          path: output/
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
       - name: Research and generate four Agnes videos
         run: python -m zunoloop.pipeline
       - name: Keep previews for review
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zunoloop-${{ github.run_id }}
           path: output/
           retention-days: 7
+          if-no-files-found: ignore
 
   publish:
     if: vars.LIVE_PUBLISH == 'true'
