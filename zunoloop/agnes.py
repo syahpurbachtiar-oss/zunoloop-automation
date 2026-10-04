@@ -41,12 +41,21 @@ def create_story(topic, language):
         f"Create an original 12-second vertical short in {language_name}, inspired by today's "
         f"Google Trends search phrase {topic!r}. Do not say it is viral, state any news result, "
         "invent facts about real people, reproduce footage, show logos, or imitate protected characters. "
-        "Make the trend visibly relevant through a fresh fictional scene. "
+        "Understand what the search phrase actually refers to and keep its category intact. "
+        "A sports fixture must be shown through an original sports scene or fans, never "
+        "a pun on team names, animals, food, or an invented match result. An athlete's name "
+        "must stay in the relevant sport without inventing biography or imitating their face. "
+        "Motorsport must be depicted on a safe closed track with protective gear, never "
+        "racing on a public road. Avoid national or cultural caricatures. "
+        "Use an original illustrative scene that makes the actual topic recognizable, "
+        "without claiming it is real footage or making a prediction. "
         "Return ONLY JSON fields title (max 80 characters), caption (max 220 characters "
         "with 2-4 relevant hashtags), voice (max 35 words), visual_prompt (max 900 characters). "
         "The visual_prompt must specify a coherent 9:16 12-second shot with visible motion, "
         "no logos, no text overlays, and characters/objects appropriate for the trend. "
         "Include a hook in voice during the first two seconds. No unverified factual claims. "
+        "Invite a comment about the real topic. In the caption make clear the visual is "
+        "an original illustration inspired by the search trend, not event footage. "
         f"Include the EXACT search phrase {topic!r} somewhere in title or caption, and "
         "visually connect the scene to that phrase."
     )
@@ -73,6 +82,18 @@ def create_story(topic, language):
                                     ("visual_prompt", 900))):
             continue
         if len(story["voice"].split()) > 35 or not 2 <= story["caption"].count("#") <= 4:
+            continue
+        if " vs " in topic.casefold() and not any(
+            word in story["visual_prompt"].casefold()
+            for word in ("sport", "match", "game", "pitch", "field", "stadium",
+                         "arena", "court", "football", "soccer", "baseball",
+                         "pertandingan", "lapangan", "stadion", "sepak bola", "bisbol")
+        ):
+            continue
+        if "motogp" in topic.casefold() and not any(
+            word in story["visual_prompt"].casefold()
+            for word in ("track", "circuit", "sirkuit", "lintasan")
+        ):
             continue
         if topic.casefold() in (story["title"] + " " + story["caption"]).casefold():
             return story
