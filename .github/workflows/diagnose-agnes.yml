@@ -1,0 +1,45 @@
+name: Diagnose Agnes free video
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
+    steps:
+      - name: Probe five-second video without publishing
+        run: |
+          python - <<'PY'
+          import json, os, time
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+          from urllib.parse import urlencode
+          base = 'https://apihub.agnes-ai.com'
+          headers = {'Authorization': 'Bearer '+os.environ['AGNES_API_KEY'],
+                     'Content-Type': 'application/json'}
+          payload = {'model':'agnes-video-2.5-flash','prompt':'A blue paper boat floats across a bowl of water, gentle camera movement, natural light','seconds':'5','mode':'text','size':'720P','aspect_ratio':'9:16'}
+          request = Request(base+'/v1/videos', data=json.dumps(payload).encode(), headers=headers)
+          try:
+              with urlopen(request, timeout=60) as r:
+                  data=json.load(r)
+              print('Created:', data.get('status'), 'video_id present:', bool(data.get('video_id')))
+          except HTTPError as e:
+              raw=e.read(2048).decode('utf8','replace')
+              try:
+                  body=json.loads(raw)
+                  reason=str(body.get('detail') or body.get('error') or body.get('message') or '')
+              except ValueError:
+                  reason=''
+              print('Create HTTP:',e.code, 'reason category:',reason[:120] if 'sk-' not in reason else '[redacted]')
+              raise SystemExit(1)
+          video_id=data['video_id']
+          for i in range(60):
+              time.sleep(10)
+              with urlopen(Request(base+'/agnesapi?'+urlencode({'video_id':video_id,'model_name':'agnes-video-2.5-flash'}),headers=headers),timeout=60) as r:
+                  result=json.load(r)
+              if result.get('status') in ('completed','failed'):
+                  print('Final status:',result.get('status'),'HTTPS URL present:',str(result.get('url','')).startswith('https://'))
+                  raise SystemExit(0 if result.get('status')=='completed' else 1)
+          raise SystemExit('Timed out')
+          PY
