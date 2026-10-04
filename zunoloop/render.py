@@ -22,8 +22,8 @@ def finish_video(source, story, language, output):
     info = json.loads(probe.stdout)
     video_streams = [s for s in info["streams"] if s.get("width") and s.get("height")]
     duration = float(info["format"]["duration"])
-    if len(video_streams) != 1 or not 4 <= duration <= 13:
-        raise RuntimeError("Agnes did not return one playable 4–12 second video")
+    if len(video_streams) != 1 or not 7 <= duration <= 9:
+        raise RuntimeError("Agnes did not return one playable 8-second video")
     width, height = video_streams[0]["width"], video_streams[0]["height"]
     if height <= width:
         raise RuntimeError("Agnes returned non-vertical media")
@@ -50,7 +50,7 @@ def finish_video(source, story, language, output):
                         "-filter_complex", "[0:v]scale=720:1280:force_original_aspect_ratio=increase,"
                         "crop=720:1280,setsar=1[v0];[v0][1:v]overlay=0:0[v]",
                         "-map", "[v]", "-map", "2:a", "-af", "apad",
-                        "-t", "12", "-r", "24", "-c:v", "libx264", "-preset", "veryfast",
+                        "-t", "8", "-r", "24", "-c:v", "libx264", "-preset", "veryfast",
                         "-crf", "24", "-pix_fmt", "yuv420p", "-c:a", "aac",
                         "-movflags", "+faststart", str(output)], check=True, capture_output=True)
     if output.stat().st_size < 30_000:
