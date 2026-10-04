@@ -4,6 +4,7 @@ import os
 import re
 import argparse
 from datetime import datetime, time, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -11,7 +12,8 @@ from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 from .buffer import create_video_post, organization_for_channels, slot_has_post
-from .render import render_video
+from .agnes import create_story, generate_video
+from .render import finish_video
 
 
 OBJECTS = [
@@ -32,9 +34,27 @@ def trends(geo):
     try:
         with urlopen(req, timeout=15) as response:
             root = ElementTree.fromstring(response.read(500_000))
-        return [n.text.strip() for n in root.findall("./channel/item/title") if n.text]
-    except (OSError, ElementTree.ParseError):
-        return []
+        now = datetime.now(timezone.utc)
+        results = []
+        for item in root.findall("./channel/item"):
+            title = item.findtext("title", "").strip()
+            published = item.findtext("pubDate", "").strip()
+            if not title or not published or any(term in title.casefold() for term in EXCLUDE):
+                continue
+            try:
+                age = now - parsedate_to_datetime(published).astimezone(timezone.utc)
+            except (TypeError, ValueError):
+                continue
+            if timedelta(0) <= age <= timedelta(hours=24):
+                results.append({"title": title, "publishedAt": published,
+                                "source": item.findtext("link", "").strip() or
+                                          f"https://trends.google.com/trending?geo={geo}"})
+        unique = {item["title"].casefold(): item for item in reversed(results)}
+        if len(unique) < 2:
+            raise RuntimeError(f"Fewer than two suitable trends in the past 24h for {geo}")
+        return list(unique.values())[:2]
+    except (OSError, ElementTree.ParseError) as exc:
+        raise RuntimeError(f"Cannot fetch fresh Google Trends for {geo}") from exc
 
 
 def choose_objects(day, trend_titles):
@@ -116,22 +136,21 @@ def next_slot(now, zone, hour, minute):
 
 
 def plan(now):
-    local_day = now.astimezone(ZoneInfo("Asia/Jakarta")).date()
+    if not os.getenv("AGNES_API_KEY"):
+        raise RuntimeError("AGNES_API_KEY is required; refusing template videos")
     topics_id, topics_en = trends("ID"), trends("US")
     entries = []
-    for lang, topics, zone, hours in (
-        ("id", topics_id, "Asia/Jakarta", (12, 20)),
-        ("en", topics_en, "America/New_York", (19, 21)),
+    for lang, topics, hours in (
+        ("id", topics_id, (12, 20)),
+        ("en", topics_en, (6, 8)),
     ):
-        for index, obj in enumerate(choose_objects(local_day, topics)):
-            story = ai_story(obj, lang, topics, index + 1)
+        for index, topic in enumerate(topics[:2]):
+            story = create_story(topic["title"], lang)
             hour = hours[index]
             entries.append({"language": lang, "slot": index + 1,
-                            "object": obj[0] if lang == "id" else obj[1],
+                            "trend": topic,
                             "story": story,
-                            "dueAt": next_slot(now, zone, hour, 0),
-                            "trendMatched": any(obj[0] in s.casefold() or obj[1] in s.casefold()
-                                                for s in topics)})
+                            "dueAt": next_slot(now, "Asia/Jakarta", hour, 0)})
     return entries
 
 
@@ -143,10 +162,16 @@ def prepare():
     for entry in entries:
         filename = f"{now.astimezone(ZoneInfo('Asia/Jakarta')).date()}-{entry['language']}-{entry['slot']}.mp4"
         path = output / filename
-        render_video(entry["story"], entry["language"], path)
+        raw_path = output / ("raw-" + filename)
+        try:
+            generate_video(entry["story"]["visual_prompt"], raw_path)
+            finish_video(raw_path, entry["story"], entry["language"], path)
+        finally:
+            raw_path.unlink(missing_ok=True)
         entry["file"] = filename
+        entry["generator"] = "agnes-video-2.5-flash"
     (output / "manifest.json").write_text(json.dumps(entries, ensure_ascii=False, indent=2))
-    print("Created four language-specific previews")
+    print("Created four Agnes video previews")
 
 
 def publish():
@@ -165,6 +190,9 @@ def publish():
                 os.environ["BUFFER_YOUTUBE_CHANNEL_ID"]: "youtube"}
     org_id = organization_for_channels(os.environ["BUFFER_API_KEY"], expected)
     entries = json.loads(Path("output/manifest.json").read_text())
+    if len(entries) != 4 or any(entry.get("generator") != "agnes-video-2.5-flash"
+                               or not entry.get("trend", {}).get("publishedAt") for entry in entries):
+        raise RuntimeError("Only four source-grounded Agnes videos can be published")
     for entry in entries:
         filename = entry["file"]
         if Path(filename).name != filename or not filename.endswith(".mp4"):
