@@ -38,7 +38,7 @@ def request_json(path, payload=None):
 def create_story(topic, language):
     language_name = "Bahasa Indonesia" if language == "id" else "English for a US audience"
     prompt = (
-        f"Create an original 12-second vertical short in {language_name}, inspired by today's "
+        f"Create an original 8-second vertical short in {language_name}, inspired by today's "
         f"Google Trends search phrase {topic!r}. Do not say it is viral, state any news result, "
         "invent facts about real people, reproduce footage, show logos, or imitate protected characters. "
         "Understand what the search phrase actually refers to and keep its category intact. "
@@ -50,8 +50,8 @@ def create_story(topic, language):
         "Use an original illustrative scene that makes the actual topic recognizable, "
         "without claiming it is real footage or making a prediction. "
         "Return ONLY JSON fields title (max 80 characters), caption (max 220 characters "
-        "with 2-4 relevant hashtags), voice (max 35 words), visual_prompt (max 900 characters). "
-        "The visual_prompt must specify a coherent 9:16 12-second shot with visible motion, "
+        "with 2-4 relevant hashtags), voice (max 22 words), visual_prompt (max 900 characters). "
+        "The visual_prompt must specify a coherent 9:16 8-second shot with visible motion, "
         "no logos, no text overlays, and characters/objects appropriate for the trend. "
         "Include a hook in voice during the first two seconds. No unverified factual claims. "
         "Invite a comment about the real topic. In the caption make clear the visual is "
@@ -83,8 +83,8 @@ def create_story(topic, language):
                                     ("visual_prompt", 900))):
             rejection = "Use exactly the required fields and character limits"
             continue
-        if len(story["voice"].split()) > 35 or not 2 <= story["caption"].count("#") <= 4:
-            rejection = "Voice must be at most 35 words and caption must have 2 to 4 hashtags"
+        if len(story["voice"].split()) > 22 or not 2 <= story["caption"].count("#") <= 4:
+            rejection = "Voice must be at most 22 words and caption must have 2 to 4 hashtags"
             continue
         if " vs " in topic.casefold() and not any(
             word in story["visual_prompt"].casefold()
@@ -111,7 +111,7 @@ def create_story(topic, language):
 def generate_video(visual_prompt, destination):
     model = VIDEO_MODEL
     data = request_json("/v1/videos", {"model": model, "prompt": visual_prompt,
-                        "mode": "text", "seconds": "12", "size": "720P",
+                        "mode": "text", "seconds": "8", "size": "720P",
                         "aspect_ratio": "9:16", "n": 1})
     video_id = data.get("video_id")
     if not video_id:
