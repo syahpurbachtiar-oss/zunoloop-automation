@@ -1,7 +1,6 @@
 """Research, script, render, host, and schedule two videos per channel per day."""
 import json
 import os
-import re
 import argparse
 from datetime import datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -16,13 +15,6 @@ from .agnes import create_story, generate_video
 from .render import finish_video
 
 
-OBJECTS = [
-    ("payung", "umbrella"), ("tas sekolah", "backpack"),
-    ("sikat gigi", "toothbrush"), ("sepatu", "sneakers"),
-    ("jam weker", "alarm clock"), ("botol minum", "water bottle"),
-    ("bantal", "pillow"), ("spons", "sponge"),
-    ("kacamata", "glasses"), ("pintu", "door"),
-]
 EXCLUDE = ("gempa", "bencana", "banjir", "kecelakaan", "meninggal",
            "war", "attack", "shooting", "death", "election", "politik")
 
@@ -55,76 +47,6 @@ def trends(geo):
         return list(unique.values())[:2]
     except (OSError, ElementTree.ParseError) as exc:
         raise RuntimeError(f"Cannot fetch fresh Google Trends for {geo}") from exc
-
-
-def choose_objects(day, trend_titles):
-    normalized = [x.casefold() for x in trend_titles
-                  if not any(bad in x.casefold() for bad in EXCLUDE)]
-    favored = [obj for obj in OBJECTS
-               if any(obj[0] in t or obj[1] in t for t in normalized)]
-    rotated = OBJECTS[day.toordinal() % len(OBJECTS):] + OBJECTS[:day.toordinal() % len(OBJECTS)]
-    return (favored + [x for x in rotated if x not in favored])[:2]
-
-
-def default_story(obj, language, slot):
-    id_name, en_name = obj
-    if language == "id":
-        hook = f"Kalau {id_name} bisa bicara..."
-        lines = [hook, f"'Aku selalu siap bantu kamu,' kata {id_name}.",
-                 "Tapi giliran dicari, aku selalu hilang!", "Benda apa lagi yang harus bicara?"]
-        return {"title": f"{id_name.title()} Punya Keluhan!",
-                "frames": lines,
-                "voice": " ".join(lines),
-                "caption": f"{id_name.title()} akhirnya curhat! Benda apa lagi? #ZunoLoop #BendaBicara #VideoLucu"}
-    lines = [f"If a {en_name} could talk...", f"'I help you every day,' says the {en_name}.",
-             "And then you lose me right on cue!", "Which object should speak next?"]
-    return {"title": f"The {en_name.title()} Has a Complaint!",
-            "frames": lines, "voice": " ".join(lines),
-            "caption": f"What if your {en_name} talked back? #ZunoLoop #TalkingObjects #Shorts"}
-
-
-def ai_story(obj, language, trend_titles, slot):
-    """Optional OpenAI-compatible text API. Falls back to original local script."""
-    fallback = default_story(obj, language, slot)
-    key, url = os.getenv("CONTENT_API_KEY"), os.getenv("CONTENT_API_URL")
-    if not key or not url:
-        return fallback
-    if not url.startswith("https://"):
-        raise ValueError("CONTENT_API_URL must be HTTPS")
-    prompt = (
-        f"Write an original 12-second talking-object short in language {language}. "
-        f"Object: {obj[0] if language == 'id' else obj[1]}. "
-        f"Slot: {slot}. Today search topics for context only: {trend_titles[:8]}. "
-        "Avoid claims about news/events, named people, fear, disasters, copyright, "
-        "products and affiliate promises. No borrowed viral footage. "
-        "Return JSON only: title (<=90 chars), frames (exactly 4 short strings), "
-        "voice (<=30 words), caption (<=220 chars, 2-4 hashtags)."
-    )
-    body = json.dumps({"model": os.getenv("CONTENT_MODEL", ""),
-                       "messages": [{"role": "user", "content": prompt}],
-                       "response_format": {"type": "json_object"}}).encode()
-    try:
-        req = Request(url, body, headers={"Authorization": "Bearer " + key,
-                                          "Content-Type": "application/json"})
-        with urlopen(req, timeout=40) as response:
-            result = json.load(response)
-        text = result["choices"][0]["message"]["content"]
-        story = json.loads(re.sub(r"^```(?:json)?|```$", "", text.strip()).strip())
-        if (not isinstance(story.get("frames"), list) or len(story["frames"]) != 4
-                or any(not isinstance(s, str) or len(s) > 110 for s in story["frames"])):
-            return fallback
-        for field, limit in (("title", 90), ("voice", 320), ("caption", 220)):
-            if not isinstance(story.get(field), str) or not 0 < len(story[field]) <= limit:
-                return fallback
-        if len(story["voice"].split()) > 30:
-            return fallback
-        combined = " ".join([story["title"], story["voice"], story["caption"],
-                             *story["frames"]]).casefold()
-        if any(bad in combined for bad in EXCLUDE):
-            return fallback
-        return story
-    except (OSError, ValueError, KeyError, IndexError, TypeError):
-        return fallback
 
 
 def next_slot(now, zone, hour, minute):
