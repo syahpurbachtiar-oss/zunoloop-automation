@@ -1,12 +1,55 @@
 import unittest
 from unittest.mock import patch
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
+from email.utils import format_datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from zoneinfo import ZoneInfo
+import json
+import os
 
-from zunoloop.pipeline import next_slot, plan
+from zunoloop.pipeline import next_slot, plan, prepare
 from zunoloop.buffer import organization_for_channels
 
 
 class PlanTests(unittest.TestCase):
+    def test_resume_reuses_completed_video_and_checkpoints_remaining(self):
+        now = datetime.now(timezone.utc)
+        entries = []
+        for index, lang in enumerate(("id", "id", "en", "en")):
+            due = now + timedelta(hours=4 + index)
+            entries.append({
+                "language": lang, "slot": (index % 2) + 1,
+                "trend": {"title": f"topic {index}", "publishedAt": format_datetime(now)},
+                "story": {"visual_prompt": f"scene {index}", "voice": "hello"},
+                "dueAt": due.isoformat().replace("+00:00", "Z"),
+            })
+        first = entries[0]
+        filename = f"{datetime.fromisoformat(first['dueAt'].replace('Z', '+00:00')).astimezone(ZoneInfo('Asia/Jakarta')).date()}-id-1.mp4"
+        first.update({"file": filename, "generator": "agnes-video-2.5-flash"})
+        def generate(prompt, path):
+            Path(path).write_bytes(b"raw")
+        def render(source, story, lang, path):
+            Path(path).write_bytes(b"video" * 7000)
+        with TemporaryDirectory() as temp:
+            old = os.getcwd()
+            try:
+                os.chdir(temp)
+                output = Path("output")
+                output.mkdir()
+                (output / filename).write_bytes(b"video" * 7000)
+                (output / "manifest.json").write_text(json.dumps(entries))
+                with patch("zunoloop.pipeline.plan") as fresh, \
+                     patch("zunoloop.pipeline.generate_video", side_effect=generate) as video, \
+                     patch("zunoloop.pipeline.finish_video", side_effect=render):
+                    prepare()
+                    fresh.assert_not_called()
+                    self.assertEqual(video.call_count, 3)
+                saved = json.loads((output / "manifest.json").read_text())
+                self.assertEqual(len([item for item in saved if item.get("file")]), 4)
+            finally:
+                os.chdir(old)
+
     def test_future_slot_uses_local_zone(self):
         now = datetime(2026, 10, 4, 2, 0, tzinfo=timezone.utc)
         self.assertEqual(next_slot(now, "Asia/Jakarta", 12, 0), "2026-10-04T05:00:00Z")
