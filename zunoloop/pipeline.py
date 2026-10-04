@@ -80,10 +80,26 @@ def prepare():
     now = datetime.now(timezone.utc)
     output = Path("output")
     output.mkdir(exist_ok=True)
-    entries = plan(now)
+    manifest = output / "manifest.json"
+    if manifest.exists():
+        entries = json.loads(manifest.read_text())
+        if len(entries) != 4 or sorted(entry.get("language") for entry in entries) != ["en", "en", "id", "id"]:
+            raise RuntimeError("Invalid resume manifest")
+        for entry in entries:
+            age = now - parsedate_to_datetime(entry["trend"]["publishedAt"]).astimezone(timezone.utc)
+            due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
+            if not timedelta(0) <= age <= timedelta(hours=36) or due <= now + timedelta(minutes=15):
+                raise RuntimeError("Resume manifest is stale; fresh research required")
+    else:
+        entries = plan(now)
+        manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
     for entry in entries:
-        filename = f"{now.astimezone(ZoneInfo('Asia/Jakarta')).date()}-{entry['language']}-{entry['slot']}.mp4"
+        filename = f"{datetime.fromisoformat(entry['dueAt'].replace('Z', '+00:00')).astimezone(ZoneInfo('Asia/Jakarta')).date()}-{entry['language']}-{entry['slot']}.mp4"
         path = output / filename
+        if (entry.get("file") == filename and entry.get("generator") == "agnes-video-2.5-flash"
+                and path.is_file() and path.stat().st_size > 30_000):
+            print(f"Reusing verified prior Agnes file {filename}", flush=True)
+            continue
         raw_path = output / ("raw-" + filename)
         try:
             generate_video(entry["story"]["visual_prompt"], raw_path)
@@ -92,7 +108,7 @@ def prepare():
             raw_path.unlink(missing_ok=True)
         entry["file"] = filename
         entry["generator"] = "agnes-video-2.5-flash"
-    (output / "manifest.json").write_text(json.dumps(entries, ensure_ascii=False, indent=2))
+        manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
     print("Created four Agnes video previews")
 
 
