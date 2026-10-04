@@ -8,8 +8,8 @@ on:
         required: false
         type: string
   schedule:
-    # 09:00 WIB. Buffer slots: ID 12:00/20:00, YouTube next 06:00/08:00 WIB.
-    - cron: '0 2 * * *'
+    # 07:00 WIB leaves time for a busy video queue before the 12:00 post.
+    - cron: '0 0 * * *'
 
 concurrency:
   group: zunoloop-daily
@@ -18,12 +18,13 @@ concurrency:
 jobs:
   create:
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 175
     permissions:
       actions: read
       contents: read
     env:
       AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,7 +48,14 @@ jobs:
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
       - name: Research and generate four Agnes videos
-        run: python -m zunoloop.pipeline
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if python -m zunoloop.pipeline; then exit 0; fi
+            if [ "$attempt" -eq 6 ]; then break; fi
+            echo "Generation attempt $attempt failed; keeping completed media and retrying in 90 seconds"
+            sleep 90
+          done
+          exit 1
       - name: Keep previews for review
         if: always()
         uses: actions/upload-artifact@v4
