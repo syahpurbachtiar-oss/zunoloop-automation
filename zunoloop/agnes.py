@@ -41,28 +41,37 @@ def create_story(topic, language):
         "with 2-4 relevant hashtags), voice (max 35 words), visual_prompt (max 900 characters). "
         "The visual_prompt must specify a coherent 9:16 12-second shot with visible motion, "
         "no logos, no text overlays, and characters/objects appropriate for the trend. "
-        "Include a hook in voice during the first two seconds. No unverified factual claims."
+        "Include a hook in voice during the first two seconds. No unverified factual claims. "
+        f"Include the EXACT search phrase {topic!r} somewhere in title or caption, and "
+        "visually connect the scene to that phrase."
     )
-    data = request_json("/v1/chat/completions", {"model": "agnes-2.5-flash",
-                        "messages": [{"role": "user", "content": prompt}], "stream": False})
-    content = data["choices"][0]["message"]["content"].strip()
-    if content.startswith("```json"):
-        content = content[7:]
-    if content.startswith("```"):
-        content = content[3:]
-    if content.endswith("```"):
-        content = content[:-3]
-    story = json.loads(content.strip())
-    for field, limit in (("title", 80), ("caption", 220), ("voice", 350),
-                         ("visual_prompt", 900)):
-        if not isinstance(story.get(field), str) or not 2 < len(story[field]) <= limit:
-            raise RuntimeError(f"Agnes story missing or invalid: {field}")
-    if len(story["voice"].split()) > 35 or not 2 <= story["caption"].count("#") <= 4:
-        raise RuntimeError("Agnes story failed narration/hashtag validation")
-    if topic.casefold() not in (story["title"] + " " + story["caption"] + " " +
-                                story["voice"] + " " + story["visual_prompt"]).casefold():
-        raise RuntimeError("Story did not mention the trend phrase; no generic fallback")
-    return story
+    for attempt in range(3):
+        reminder = (" Your last answer omitted the exact search phrase from title/caption. "
+                    f"This time include {topic!r} verbatim in title or caption."
+                    if attempt else "")
+        data = request_json("/v1/chat/completions", {"model": "agnes-2.5-flash",
+                            "messages": [{"role": "user", "content": prompt + reminder}],
+                            "stream": False})
+        content = data["choices"][0]["message"]["content"].strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        try:
+            story = json.loads(content.strip())
+        except json.JSONDecodeError:
+            continue
+        if any(not isinstance(story.get(field), str) or not 2 < len(story[field]) <= limit
+               for field, limit in (("title", 80), ("caption", 220), ("voice", 350),
+                                    ("visual_prompt", 900))):
+            continue
+        if len(story["voice"].split()) > 35 or not 2 <= story["caption"].count("#") <= 4:
+            continue
+        if topic.casefold() in (story["title"] + " " + story["caption"]).casefold():
+            return story
+    raise RuntimeError("Agnes did not provide a valid trend-grounded story in three attempts")
 
 
 def generate_video(visual_prompt, destination):
