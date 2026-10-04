@@ -1,0 +1,50 @@
+name: ZunoLoop daily video pipeline
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 09:00 WIB. Buffer receives exact times for each channel below.
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zunoloop-daily
+  cancel-in-progress: false
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      BUFFER_ORGANIZATION_ID: ${{ vars.BUFFER_ORGANIZATION_ID }}
+      BUFFER_INSTAGRAM_CHANNEL_ID: ${{ vars.BUFFER_INSTAGRAM_CHANNEL_ID }}
+      BUFFER_TIKTOK_CHANNEL_ID: ${{ vars.BUFFER_TIKTOK_CHANNEL_ID }}
+      BUFFER_YOUTUBE_CHANNEL_ID: ${{ vars.BUFFER_YOUTUBE_CHANNEL_ID }}
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+      CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      CONTENT_API_URL: ${{ vars.CONTENT_API_URL }}
+      CONTENT_MODEL: ${{ vars.CONTENT_MODEL }}
+      CONTENT_API_KEY: ${{ secrets.CONTENT_API_KEY }}
+      LIVE_PUBLISH: ${{ vars.LIVE_PUBLISH }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install video tools
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng fonts-dejavu-core
+      - name: Install Python packages
+        run: python -m pip install -r requirements.txt
+      - name: Generate and optionally schedule
+        run: python -m zunoloop.pipeline
+      - name: Keep previews for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zunoloop-${{ github.run_id }}
+          path: output/
+          retention-days: 7
