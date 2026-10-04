@@ -10,9 +10,20 @@ import os
 
 from zunoloop.pipeline import next_slot, plan, prepare
 from zunoloop.buffer import organization_for_channels
+from zunoloop.agnes import create_story
 
 
 class PlanTests(unittest.TestCase):
+    def test_sports_trend_rejects_animal_pun_then_corrects(self):
+        bad = {"title": "Cardinals vs Giants", "caption": "Birds and dogs play. #Cardinals #Giants",
+               "voice": "Who wins this backyard duel?", "visual_prompt": "Birds and a dog in a backyard."}
+        good = {"title": "Cardinals vs Giants fan moment", "caption": "Original fan scene inspired by cardinals vs giants. #football #fans",
+                "voice": "Which side are you cheering for today?", "visual_prompt": "Original football fans in red and blue jerseys at a stadium."}
+        responses = [{"choices": [{"message": {"content": json.dumps(item)}}]} for item in (bad, good)]
+        with patch("zunoloop.agnes.request_json", side_effect=responses) as send:
+            self.assertEqual(create_story("cardinals vs giants", "en"), good)
+        self.assertIn("sports matchup", send.call_args_list[1].args[1]["messages"][0]["content"])
+
     def test_resume_reuses_completed_video_and_checkpoints_remaining(self):
         now = datetime.now(timezone.utc)
         entries = []
