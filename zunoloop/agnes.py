@@ -15,7 +15,9 @@ def request_json(path, payload=None):
     key = os.getenv("AGNES_API_KEY")
     if not key:
         raise RuntimeError("AGNES_API_KEY missing")
-    for retry in range(5):
+    video_create = path == "/v1/videos"
+    attempts = 15 if video_create else 5
+    for retry in range(attempts):
         request = Request(BASE + path,
                           data=json.dumps(payload).encode() if payload is not None else None,
                           headers={"Authorization": "Bearer " + key,
@@ -24,9 +26,12 @@ def request_json(path, payload=None):
             with urlopen(request, timeout=60) as response:
                 return json.load(response)
         except HTTPError as exc:
-            if exc.code not in (408, 429, 500, 502, 503, 504, 520, 522, 524) or retry == 4:
+            if exc.code not in (408, 429, 500, 502, 503, 504, 520, 522, 524) or retry == attempts - 1:
                 raise RuntimeError(f"Agnes API HTTP {exc.code} at {path.split('?')[0]}") from exc
-            time.sleep(min(60, 2 ** retry * 5))
+            delay = 60 if video_create and exc.code == 503 else min(60, 2 ** retry * 5)
+            print(f"Agnes {path.split('?')[0]} HTTP {exc.code}; retrying in {delay}s "
+                  f"({retry + 1}/{attempts})", flush=True)
+            time.sleep(delay)
     raise RuntimeError("Agnes API retry limit")
 
 
