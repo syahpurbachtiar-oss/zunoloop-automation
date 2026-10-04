@@ -1,6 +1,7 @@
 """Agnes text/video API. Fail closed on missing credentials or incomplete media."""
 import json
 import os
+import re
 import time
 from pathlib import Path
 from urllib.error import HTTPError
@@ -78,6 +79,22 @@ def create_story(topic, language):
         except json.JSONDecodeError:
             rejection = "Return valid JSON only"
             continue
+        if isinstance(story, dict):
+            # Agnes often exceeds formatting limits even after a corrective prompt.
+            # Keep the hook and normalize only mechanical length/tag constraints.
+            if isinstance(story.get("voice"), str):
+                words = story["voice"].split()
+                if len(words) > 22:
+                    story["voice"] = " ".join(words[:22]).rstrip(",;:") + "."
+            if isinstance(story.get("caption"), str):
+                caption = story["caption"]
+                tags = list(re.finditer(r"(?<!\w)#[\w]+", caption))
+                for match in reversed(tags[4:]):
+                    caption = caption[:match.start()] + caption[match.end():]
+                if len(tags) < 2:
+                    defaults = ("#ZunoLoop", "#Ilustrasi") if language == "id" else ("#ZunoLoop", "#OriginalShort")
+                    caption = caption.rstrip() + " " + " ".join(defaults[:2 - len(tags)])
+                story["caption"] = re.sub(r"\s{2,}", " ", caption).strip()
         if any(not isinstance(story.get(field), str) or not 2 < len(story[field]) <= limit
                for field, limit in (("title", 80), ("caption", 220), ("voice", 350),
                                     ("visual_prompt", 900))):
