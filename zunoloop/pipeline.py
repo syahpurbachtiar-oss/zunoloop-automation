@@ -57,9 +57,34 @@ def next_slot(now, zone, hour, minute):
     return candidate.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def trend_age(trend, now):
+    # Reviewed batches expire 24h after research, independently of news publication.
+    if trend.get("researchedAt"):
+        observed = datetime.fromisoformat(trend["researchedAt"].replace("Z", "+00:00"))
+        age = now - observed.astimezone(timezone.utc)
+        if not timedelta(0) <= age <= timedelta(hours=24):
+            raise RuntimeError("Reviewed research is stale")
+        return age
+    return now - parsedate_to_datetime(trend["publishedAt"]).astimezone(timezone.utc)
+
+
 def plan(now):
     if not os.getenv("AGNES_API_KEY"):
         raise RuntimeError("AGNES_API_KEY is required; refusing template videos")
+    reviewed = os.getenv("REVIEWED_PLAN", "")
+    if reviewed:
+        path = Path(reviewed)
+        if path.parent != Path("plans") or path.suffix != ".json":
+            raise RuntimeError("Reviewed plan must be a plans/*.json file")
+        entries = json.loads(path.read_text())
+        if len(entries) != 4 or sorted(e.get("language") for e in entries) != ["en", "en", "id", "id"]:
+            raise RuntimeError("Invalid reviewed batch")
+        for entry in entries:
+            trend_age(entry["trend"], now)
+            due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
+            if due <= now + timedelta(minutes=15):
+                raise RuntimeError("Reviewed slot has passed")
+        return entries
     topics_id, topics_en = trends("ID"), trends("US")
     entries = []
     for lang, topics, hours in (
@@ -86,7 +111,7 @@ def prepare():
         if len(entries) != 4 or sorted(entry.get("language") for entry in entries) != ["en", "en", "id", "id"]:
             raise RuntimeError("Invalid resume manifest")
         for entry in entries:
-            age = now - parsedate_to_datetime(entry["trend"]["publishedAt"]).astimezone(timezone.utc)
+            age = trend_age(entry["trend"], now)
             due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
             if not timedelta(0) <= age <= timedelta(hours=36) or due <= now + timedelta(minutes=15):
                 raise RuntimeError("Resume manifest is stale; fresh research required")
@@ -135,8 +160,7 @@ def publish():
         raise RuntimeError("Only four source-grounded Agnes videos can be published")
     now = datetime.now(timezone.utc)
     for entry in entries:
-        trend_time = parsedate_to_datetime(entry["trend"]["publishedAt"]).astimezone(timezone.utc)
-        age = now - trend_time
+        age = trend_age(entry["trend"], now)
         due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
         if not timedelta(0) <= age <= timedelta(hours=36) or due <= now + timedelta(minutes=15):
             raise RuntimeError("Trend is stale or scheduled slot is too close; refusing publication")
