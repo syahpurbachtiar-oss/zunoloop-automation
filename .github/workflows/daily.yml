@@ -7,6 +7,11 @@ on:
         description: Optional reviewed plans JSON path
         required: false
         type: string
+      publish_ready:
+        description: Publish completed videos from a prior run without generating again
+        required: false
+        type: boolean
+        default: false
       resume_run_id:
         description: Optional prior run with incomplete Agnes videos
         required: false
@@ -53,6 +58,7 @@ jobs:
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
       - name: Research and generate four Agnes videos
+        if: inputs.publish_ready != true
         run: |
           for attempt in 1 2 3 4 5 6; do
             if python -m zunoloop.pipeline; then exit 0; fi
@@ -71,7 +77,7 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    if: vars.LIVE_PUBLISH == 'true'
+    if: always() && !cancelled() && vars.LIVE_PUBLISH == 'true' && (needs.create.result == 'success' || needs.create.result == 'failure')
     needs: create
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -122,7 +128,7 @@ jobs:
           path: site/
       - id: deployment
         uses: actions/deploy-pages@v4
-      - name: Schedule six posts via Buffer
+      - name: Schedule completed videos via Buffer
         env:
           MEDIA_BASE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
