@@ -1,0 +1,70 @@
+[
+  {
+    "language": "id",
+    "slot": 1,
+    "trend": {
+      "title": "persib hari ini",
+      "publishedAt": "Thu, 08 Oct 2026 05:18:00 GMT",
+      "researchedAt": "2026-10-09T02:18:28Z",
+      "source": "https://trends.google.com/trending?geo=ID"
+    },
+    "story": {
+      "title": "Kursi Stadion Akhirnya Protes!",
+      "voice": "Aku kursi stadion. Saat pertandingan tegang, kamu berdiri. Begitu gol, malah aku diinjak! Duduk boleh, menginjak jangan!",
+      "caption": "Semua fokus ke pertandingan, kursinya ikut protes 😭 Kamu tim duduk atau berdiri? #Persib #KursiBicara #KomediIndonesia #ZunoLoop",
+      "visual_prompt": "An original expressive anthropomorphic blue stadium seat with eyes and a mouth in a generic football stadium. Coherent 8-second 9:16 cinematic 3D animation. First 2 seconds the chair opens its eyes as fans rise. Seconds 2-5 it bends its legs and dodges a shoe approaching the seat; no injury. Seconds 5-8 the seat sternly gestures toward its cushion then looks at camera annoyed. Rich natural motion, consistent anatomy, no logos, no text, no real athletes, no broadcast footage."
+    },
+    "dueAt": "2026-10-09T11:00:00Z"
+  },
+  {
+    "language": "id",
+    "slot": 2,
+    "trend": {
+      "title": "pekan antariksa dunia 2026 tiket",
+      "publishedAt": "Thu, 08 Oct 2026 09:18:00 GMT",
+      "researchedAt": "2026-10-09T02:18:28Z",
+      "source": "https://trends.google.com/trending?geo=ID"
+    },
+    "story": {
+      "title": "Tiket Antariksa Tidak Mau Dilipat",
+      "voice": "Aku tiket antariksa, bukan struk belanja! Baru dibeli, sudah dilipat dan hilang di saku. Hei, acaranya di luar!",
+      "caption": "Tiketnya ingin ikut melihat angkasa, bukan terjebak di saku. Planet apa yang ingin kamu lihat? #Antariksa #TiketBicara #AnimasiAI #ZunoLoop",
+      "visual_prompt": "Original anthropomorphic purple paper admission ticket with eyes, mouth and flexible tiny arms, generic space exhibition lobby with planet models. Coherent 8-second 9:16 high quality 3D cartoon animation. 0-2s ticket smiles proudly. 2-5s a hand folds it gently and puts it into a jacket pocket. 5-8s ticket unfolds, climbs halfway out and points toward the planet exhibition while complaining. No readable ticket text, no QR code, no logos, no protected characters."
+    },
+    "dueAt": "2026-10-09T13:00:00Z"
+  },
+  {
+    "language": "en",
+    "slot": 1,
+    "trend": {
+      "title": "buccaneers vs cowboys",
+      "publishedAt": "Thu, 08 Oct 2026 10:18:00 GMT",
+      "researchedAt": "2026-10-09T02:18:28Z",
+      "source": "https://trends.google.com/trending?geo=US"
+    },
+    "story": {
+      "title": "This Foam Finger Has One Game-Day Complaint",
+      "voice": "You wave me upside down, then blame me for bad luck? I'm a foam finger! Point me at the game!",
+      "caption": "Game-day excitement has the foam finger protesting. Which way are you waving yours? #GameDay #TalkingObjects #FootballComedy #Shorts",
+      "visual_prompt": "Original anthropomorphic generic orange foam finger with expressive eyes, mouth and flexible foam motion in an American football stadium. Coherent 8-second 9:16 high quality 3D cartoon. 0-2s crowd waves the finger upside down. 2-5s finger notices, reacts angrily and rotates upright. 5-8s it points at the fictional football field then rolls its eyes to camera. No real players, no team logos, no broadcast footage, no text."
+    },
+    "dueAt": "2026-10-09T23:00:00Z"
+  },
+  {
+    "language": "en",
+    "slot": 2,
+    "trend": {
+      "title": "meteor shower tonight",
+      "publishedAt": "Thu, 08 Oct 2026 22:18:00 GMT",
+      "researchedAt": "2026-10-09T02:18:28Z",
+      "source": "https://trends.google.com/trending?geo=US"
+    },
+    "story": {
+      "title": "The Telescope Missed the Meteor Shower",
+      "voice": "You brought me outside, then blocked my lens with your thumb? I'm a telescope! Let me see the sky!",
+      "caption": "The telescope was ready. Its owner wasn't. Original fictional stargazing comedy. #SpaceComedy #TalkingObjects #NightSky #Shorts",
+      "visual_prompt": "Original small teal anthropomorphic telescope with expressive eyes and mouth on its tube and intact tripod legs in a backyard at night. Coherent 8-second 9:16 3D animation. 0-2s telescope tilts excitedly toward a fictional starry sky. 2-5s a human thumb accidentally covers its front lens; telescope recoils. 5-8s it pushes the thumb aside with a little arm and looks at camera exasperated. Soft stars, no claim about actual meteor visibility, no logos, no text."
+    },
+    "dueAt": "2026-10-10T01:00:00Z"
+  }
+]
