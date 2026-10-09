@@ -113,7 +113,9 @@ def prepare():
         for entry in entries:
             age = trend_age(entry["trend"], now)
             due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
-            if not timedelta(0) <= age <= timedelta(hours=36) or due <= now + timedelta(minutes=15):
+            ready = (entry.get("generator") == "agnes-video-2.5-flash"
+                     and entry.get("file") and (output / entry["file"]).is_file())
+            if not timedelta(0) <= age <= timedelta(hours=36) or (not ready and due <= now + timedelta(minutes=15)):
                 raise RuntimeError("Resume manifest is stale; fresh research required")
     else:
         entries = plan(now)
@@ -153,17 +155,16 @@ def publish():
                 os.environ["BUFFER_YOUTUBE_CHANNEL_ID"]: "youtube"}
     org_id = organization_for_channels(os.environ["BUFFER_API_KEY"], expected)
     entries = json.loads(Path("output/manifest.json").read_text())
-    if len(entries) != 4 or sorted(entry.get("language") for entry in entries) != ["en", "en", "id", "id"] or any(
-        entry.get("generator") != "agnes-video-2.5-flash"
-        or not entry.get("trend", {}).get("publishedAt") for entry in entries
-    ):
-        raise RuntimeError("Only four source-grounded Agnes videos can be published")
+    if len(entries) != 4 or sorted(entry.get("language") for entry in entries) != ["en", "en", "id", "id"]:
+        raise RuntimeError("Invalid source-grounded batch")
+    ready = [entry for entry in entries if entry.get("file")
+             and entry.get("generator") == "agnes-video-2.5-flash"
+             and entry.get("trend", {}).get("publishedAt")]
+    if not ready:
+        raise RuntimeError("No completed Agnes videos available for publication")
+    print(f"Publishing {len(ready)} completed Agnes videos; {len(entries) - len(ready)} still pending", flush=True)
     now = datetime.now(timezone.utc)
-    for entry in entries:
-        age = trend_age(entry["trend"], now)
-        due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
-        if not timedelta(0) <= age <= timedelta(hours=36) or due <= now + timedelta(minutes=15):
-            raise RuntimeError("Trend is stale or scheduled slot is too close; refusing publication")
+    for entry in ready:
         filename = entry["file"]
         if Path(filename).name != filename or not filename.endswith(".mp4"):
             raise RuntimeError("Invalid filename in manifest")
@@ -182,6 +183,10 @@ def publish():
                                         os.getenv(ch), entry["dueAt"])]
         if not pending:
             continue
+        age = trend_age(entry["trend"], now)
+        due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
+        if not timedelta(0) <= age <= timedelta(hours=36) or due <= now + timedelta(minutes=15):
+            raise RuntimeError("Trend is stale or scheduled slot is too close; refusing publication")
         with urlopen(Request(url, headers={"User-Agent": "ZunoLoopPublisher/1.0"}), timeout=30) as response:
             if response.status != 200 or "video/mp4" not in response.headers.get("Content-Type", ""):
                 raise RuntimeError("Public media URL is not serving MP4: " + url)
@@ -200,3 +205,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
