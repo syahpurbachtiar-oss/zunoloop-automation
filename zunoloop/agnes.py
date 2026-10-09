@@ -60,6 +60,8 @@ def create_story(topic, language):
         f"Include the EXACT search phrase {topic!r} somewhere in title or caption, and "
         "visually connect the scene to that phrase."
     )
+    prompt += " Use short conversational phrases with expressive punctuation and natural pauses. "
+    prompt += "For Indonesian use at most 15 words; for English at most 18 words. Avoid tongue-twisters."
     rejection = ""
     for attempt in range(5):
         reminder = (f" Your previous response was rejected: {rejection}. Correct that issue "
@@ -84,8 +86,9 @@ def create_story(topic, language):
             # Keep the hook and normalize only mechanical length/tag constraints.
             if isinstance(story.get("voice"), str):
                 words = story["voice"].split()
-                if len(words) > 22:
-                    story["voice"] = " ".join(words[:22]).rstrip(",;:") + "."
+                if len(words) > (15 if language == "id" else 18):
+                    rejection = "Rewrite a complete shorter spoken joke: max 15 Indonesian or 18 English words"
+                    continue
             if isinstance(story.get("caption"), str):
                 caption = story["caption"]
                 tags = list(re.finditer(r"(?<!\w)#[\w]+", caption))
@@ -100,7 +103,7 @@ def create_story(topic, language):
                                     ("visual_prompt", 900))):
             rejection = "Use exactly the required fields and character limits"
             continue
-        if len(story["voice"].split()) > 22 or not 2 <= story["caption"].count("#") <= 4:
+        if len(story["voice"].split()) > (15 if language == "id" else 18) or not 2 <= story["caption"].count("#") <= 4:
             rejection = "Voice must be at most 22 words and caption must have 2 to 4 hashtags"
             continue
         if " vs " in topic.casefold() and not any(
