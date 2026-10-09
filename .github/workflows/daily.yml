@@ -3,6 +3,10 @@ name: ZunoLoop daily video pipeline
 on:
   workflow_dispatch:
     inputs:
+      reviewed_plan:
+        description: Optional reviewed plans JSON path
+        required: false
+        type: string
       resume_run_id:
         description: Optional prior run with incomplete Agnes videos
         required: false
@@ -25,6 +29,7 @@ jobs:
     env:
       AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
       PYTHONUNBUFFERED: '1'
+      REVIEWED_PLAN: ${{ inputs.reviewed_plan }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
