@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from .buffer import create_video_post, organization_for_channels, slot_has_post
 from .agnes import create_story, generate_video
-from .render import finish_video
+from .render import finish_video, PROFILE
 
 
 EXCLUDE = ("gempa", "bencana", "banjir", "kecelakaan", "meninggal",
@@ -127,12 +127,12 @@ def prepare():
                 and path.is_file() and path.stat().st_size > 30_000):
             print(f"Reusing verified prior Agnes file {filename}", flush=True)
             continue
-        raw_path = output / ("raw-" + filename)
-        try:
+        raw_path = output / "sources" / ("raw-" + filename)
+        raw_path.parent.mkdir(exist_ok=True)
+        if not raw_path.exists():
             generate_video(entry["story"]["visual_prompt"], raw_path)
-            finish_video(raw_path, entry["story"], entry["language"], path)
-        finally:
-            raw_path.unlink(missing_ok=True)
+        finish_video(raw_path, entry["story"], entry["language"], path)
+        entry["renderProfile"] = PROFILE
         entry["file"] = filename
         entry["generator"] = "agnes-video-2.5-flash"
         manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
