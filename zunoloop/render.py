@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 import edge_tts
 
-PROFILE = 'neural-word-v1'
+PROFILE = 'neural-word-fullframe-v2'
 VOICES = {'id': 'id-ID-ArdiNeural', 'en': 'en-US-GuyNeural'}
 
 def duration(path):
@@ -70,9 +70,9 @@ def finish_video(source, story, language, output, legacy=False):
             raise RuntimeError('Narration too long; shorten script rather than cut audio')
         count = write_subtitles(metadata, subtitles, length)
         # Legacy exports have captions burned below y=870. Remove that region,
-        # then reframe the remaining original Agnes motion over a blurred backdrop.
+        # then fill the entire 9:16 canvas with the remaining original motion.
         if legacy:
-            vf = f'[0:v]crop=iw:ih*0.67:0:0,split[a][b];[a]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=35[bg];[b]scale=720:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,ass={subtitles}[v]'
+            vf = f'[0:v]crop=iw:trunc(ih*0.67/2)*2:0:0,scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1,ass={subtitles}[v]'
         else:
             vf = f'[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1,ass={subtitles}[v]'
         subprocess.run(['ffmpeg','-v','error','-y','-i',str(source),'-i',str(audio),
@@ -84,3 +84,23 @@ def finish_video(source, story, language, output, legacy=False):
         print(f'Neural voice {VOICES[language]}, rate {rate}, {count} individual word subtitles',flush=True)
     if output.stat().st_size < 30_000:
         raise RuntimeError('Finished video unexpectedly small')
+
+def reframe_existing(source, narrated, output):
+    """Remove legacy burned captions and retain verified neural audio/timings."""
+    source, narrated, output = map(Path, (source, narrated, output))
+    subtitles = narrated.with_suffix('.ass')
+    metadata = narrated.with_suffix('.words.jsonl')
+    if not subtitles.is_file() or not metadata.is_file():
+        raise RuntimeError('Verified neural subtitle timing files are required')
+    length = duration(source)
+    if not 7 <= length <= 9:
+        raise RuntimeError('Invalid original Agnes duration')
+    vf = f'[0:v]crop=iw:trunc(ih*0.67/2)*2:0:0,scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1,ass={subtitles.resolve()}[v]'
+    subprocess.run(['ffmpeg','-v','error','-y','-i',str(source),'-i',str(narrated),
+                    '-filter_complex',vf,'-map','[v]','-map','1:a','-t',str(length),
+                    '-r','24','-c:v','libx264','-preset','veryfast','-crf','24',
+                    '-pix_fmt','yuv420p','-c:a','copy','-movflags','+faststart',str(output)],
+                   check=True,capture_output=True)
+    shutil.copy(subtitles, output.with_suffix('.ass'))
+    shutil.copy(metadata, output.with_suffix('.words.jsonl'))
+    print(f'Full-frame 720x1280; preserved neural audio and word timings: {output.name}',flush=True)
