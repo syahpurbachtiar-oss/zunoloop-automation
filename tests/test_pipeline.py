@@ -39,15 +39,17 @@ class PlanTests(unittest.TestCase):
         self.assertEqual([call.args[1] for call in create.call_args_list], ["tt", "ig", "tt"])
         self.assertEqual(media.call_count, 2)
 
-    def test_story_normalizes_voice_length_and_hashtag_count(self):
+    def test_story_rewrites_long_narration_without_truncating_joke(self):
         raw = {"title": "belanda vs serbia fans", "caption": "Original illustration inspired by belanda vs serbia. #sport #fans #stadium #match #football",
                "voice": " ".join(["Watch"] + ["fans"] * 24),
                "visual_prompt": "Original football fans in an illuminated stadium."}
-        response = {"choices": [{"message": {"content": json.dumps(raw)}}]}
-        with patch("zunoloop.agnes.request_json", return_value=response) as send:
+        short = dict(raw, voice="Watch these fans cheer before the whistle even blows!")
+        responses = [{"choices": [{"message": {"content": json.dumps(item)}}]} for item in (raw, short)]
+        with patch("zunoloop.agnes.request_json", side_effect=responses) as send:
             story = create_story("belanda vs serbia", "en")
-        self.assertEqual(send.call_count, 1)
-        self.assertLessEqual(len(story["voice"].split()), 22)
+        self.assertEqual(send.call_count, 2)
+        self.assertEqual(story["voice"], short["voice"])
+        self.assertLessEqual(len(story["voice"].split()), 18)
         self.assertEqual(story["caption"].count("#"), 4)
 
     def test_sports_trend_rejects_animal_pun_then_corrects(self):
