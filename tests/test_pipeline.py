@@ -8,12 +8,37 @@ from zoneinfo import ZoneInfo
 import json
 import os
 
-from zunoloop.pipeline import next_slot, plan, prepare
+from zunoloop.pipeline import next_slot, plan, prepare, publish
 from zunoloop.buffer import organization_for_channels
 from zunoloop.agnes import create_story
 
 
 class PlanTests(unittest.TestCase):
+    def test_partial_batch_publishes_ready_localized_videos_without_duplicates(self):
+        now = datetime.now(timezone.utc)
+        entries = [{"language": lang, "slot": i % 2 + 1,
+                    "trend": {"publishedAt": format_datetime(now)},
+                    "dueAt": (now + timedelta(hours=3+i)).isoformat(),
+                    "story": {"caption": "Original illustration #ZunoLoop #Ilustrasi"}}
+                   for i, lang in enumerate(("id", "id", "en", "en"))]
+        for i in range(2):
+            entries[i].update(file=f"ready-{i}.mp4", generator="agnes-video-2.5-flash")
+        env = {"LIVE_PUBLISH": "true", "BUFFER_API_KEY": "test",
+               "BUFFER_INSTAGRAM_CHANNEL_ID": "ig", "BUFFER_TIKTOK_CHANNEL_ID": "tt",
+               "BUFFER_YOUTUBE_CHANNEL_ID": "yt", "MEDIA_BASE_URL": "https://example.com"}
+        with patch.dict(os.environ, env), \
+             patch("zunoloop.pipeline.Path.read_text", return_value=json.dumps(entries)), \
+             patch("zunoloop.pipeline.organization_for_channels", return_value="org"), \
+             patch("zunoloop.pipeline.slot_has_post", side_effect=[True, False, False, False]), \
+             patch("zunoloop.pipeline.urlopen") as media, \
+             patch("zunoloop.pipeline.create_video_post", return_value={"id": "post", "dueAt": "future"}) as create:
+            response = media.return_value.__enter__.return_value
+            response.status = 200
+            response.headers = {"Content-Type": "video/mp4"}
+            publish()
+        self.assertEqual([call.args[1] for call in create.call_args_list], ["tt", "ig", "tt"])
+        self.assertEqual(media.call_count, 2)
+
     def test_story_normalizes_voice_length_and_hashtag_count(self):
         raw = {"title": "belanda vs serbia fans", "caption": "Original illustration inspired by belanda vs serbia. #sport #fans #stadium #match #football",
                "voice": " ".join(["Watch"] + ["fans"] * 24),
@@ -122,3 +147,4 @@ class PlanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
