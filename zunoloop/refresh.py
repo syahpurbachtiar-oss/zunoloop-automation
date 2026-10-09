@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from .render import finish_video, PROFILE
+from .render import finish_video, reframe_existing, PROFILE
 from .buffer import _graphql, POSTS_QUERY, organization_for_channels
 from .pipeline import publish
 
@@ -16,12 +16,18 @@ def refresh():
             continue
         if entry.get('renderProfile') == PROFILE:
             continue
-        source = root/'sources'/('raw-'+entry['file'])
+        original = Path(entry['file']).stem.removesuffix('-neural') + '.mp4'
+        source = root/'sources'/('raw-'+original)
         legacy = not source.exists()
         if legacy:
-            source = root/entry['file']
-        filename = Path(entry['file']).stem+'-neural.mp4'
-        finish_video(source, entry['story'], entry['language'], root/filename, legacy=legacy)
+            source = root/original
+        if not source.is_file():
+            raise RuntimeError('Original Agnes export missing; refusing blur or distorted media')
+        filename = Path(original).stem+'-fullframe.mp4'
+        if legacy and entry.get('renderProfile') == 'neural-word-v1':
+            reframe_existing(source, root/entry['file'], root/filename)
+        else:
+            finish_video(source, entry['story'], entry['language'], root/filename, legacy=legacy)
         entry['file'] = filename
         entry['renderProfile'] = PROFILE
         (root/'manifest.json').write_text(json.dumps(entries,ensure_ascii=False,indent=2))
