@@ -54,7 +54,11 @@ def replace_queued():
                 if post['status'].lower() not in ('scheduled','pending','queued'):
                     raise RuntimeError('Refusing to modify non-queued post: '+str(post))
                 url=os.environ['MEDIA_BASE_URL'].rstrip('/')+'/media/'+entry['file']
-                action=_graphql(key,EDIT,{'input':{'id':post['id'],'assets':[{'video':{'url':url}}],'aiAssisted':True}})['editPost']
+                service=expected[ch]
+                metadata = ({'instagram': {'type':'reel','shouldShareToFeed':True,'isAiGenerated':True}} if service=='instagram' else
+                            {'tiktok': {'isAiGenerated':True}} if service=='tiktok' else
+                            {'youtube': {'title':entry['story']['title'],'categoryId':'24','isAiGenerated':True,'madeForKids':False}})
+                action=_graphql(key,EDIT,{'input':{'id':post['id'],'assets':[{'video':{'url':url}}],'metadata':metadata,'aiAssisted':True}})['editPost']
                 if not action.get('post',{}).get('id'):
                     raise RuntimeError(str(action))
                 print('Upgraded queued post: '+str(action['post']),flush=True)
