@@ -12,6 +12,10 @@ on:
         required: false
         type: boolean
         default: false
+      refresh_voice:
+        description: Upgrade unposted media to neural voice and word subtitles
+        type: boolean
+        default: false
       resume_run_id:
         description: Optional prior run with incomplete Agnes videos
         required: false
@@ -41,7 +45,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install video tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng fonts-dejavu-core
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
       - name: Install Python packages
         run: python -m pip install -r requirements.txt
       - name: Validate prior run identifier
@@ -57,8 +61,11 @@ jobs:
           path: output/
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
+      - name: Refresh narration and subtitles
+        if: inputs.refresh_voice == true
+        run: python -m zunoloop.refresh
       - name: Research and generate four Agnes videos
-        if: inputs.publish_ready != true
+        if: inputs.publish_ready != true && inputs.refresh_voice != true
         run: |
           for attempt in 1 2 3 4 5 6; do
             if python -m zunoloop.pipeline; then exit 0; fi
@@ -94,6 +101,7 @@ jobs:
       BUFFER_TIKTOK_CHANNEL_ID: ${{ vars.BUFFER_TIKTOK_CHANNEL_ID }}
       BUFFER_YOUTUBE_CHANNEL_ID: ${{ vars.BUFFER_YOUTUBE_CHANNEL_ID }}
       LIVE_PUBLISH: ${{ vars.LIVE_PUBLISH }}
+      REFRESH_VOICE: ${{ inputs.refresh_voice }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -123,7 +131,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add site/media
-          if ! git diff --cached --quiet; then git commit -m "Update public ZunoLoop video media" && git push; fi
+          if ! git diff --cached --quiet; then git commit -m "Update public ZunoLoop video media" && git pull --rebase origin main && git push; fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -139,7 +147,11 @@ jobs:
             sleep 10
           done
           for attempt in 1 2 3 4 5 6; do
-            if python -m zunoloop.pipeline --publish; then exit 0; fi
+            if [ "$REFRESH_VOICE" = "true" ]; then
+              if python -m zunoloop.refresh --publish; then exit 0; fi
+            else
+              if python -m zunoloop.pipeline --publish; then exit 0; fi
+            fi
             if [ "$attempt" -eq 6 ]; then break; fi
             echo "Buffer attempt $attempt failed; checking existing slots before retrying"
             sleep 30
