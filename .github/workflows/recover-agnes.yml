@@ -1,25 +1,7 @@
 name: ZunoLoop recover saved videos
 
 on:
-  workflow_dispatch:
-    inputs:
-      reviewed_plan:
-        description: Optional reviewed plans JSON path
-        required: false
-        type: string
-      publish_ready:
-        description: Publish completed videos from a prior run without generating again
-        required: false
-        type: boolean
-        default: false
-      refresh_voice:
-        description: Upgrade unposted media to neural voice and word subtitles
-        type: boolean
-        default: false
-      resume_run_id:
-        description: Optional prior run with incomplete Agnes videos
-        required: false
-        type: string
+  workflow_dispatch: {}
   workflow_run:
     workflows: ['ZunoLoop daily video pipeline']
     types: [completed]
@@ -51,7 +33,7 @@ jobs:
         id: recovery
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NAME: workflow_run
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           INPUT_RESUME: ${{ inputs.resume_run_id }}
           INPUT_PUBLISH: ${{ inputs.publish_ready }}
