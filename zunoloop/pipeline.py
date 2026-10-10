@@ -14,11 +14,8 @@ from zoneinfo import ZoneInfo
 from .buffer import create_video_post, organization_for_channels, slot_has_post
 from .agnes import create_story, generate_video
 from .render import finish_video, PROFILE
-from .research import platform_topics
+from .research import platform_topics, EXCLUDE
 
-
-EXCLUDE = ("gempa", "bencana", "banjir", "kecelakaan", "meninggal",
-           "war", "attack", "shooting", "death", "election", "politik")
 
 
 def trends(geo):
