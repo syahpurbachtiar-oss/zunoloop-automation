@@ -8,11 +8,24 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from zipfile import ZipFile
 
-from zunoloop.recovery import choose
+from urllib.request import Request
+from zunoloop.recovery import choose, ArtifactRedirect
 from zunoloop.agnes import generate_video
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_artifact_redirect_drops_github_auth_before_storage_download(self):
+        request = Request("https://api.github.com/repos/example/artifact", headers={"Authorization": "Bearer private"})
+        redirected = ArtifactRedirect().redirect_request(request, None, 302, "Found", {},
+                                                         "https://storage.example.com/artifact?signature=value")
+        self.assertIsNone(redirected.get_header("Authorization"))
+        self.assertEqual(redirected.full_url, "https://storage.example.com/artifact?signature=value")
+
+    def test_recovery_download_rejects_insecure_redirect(self):
+        with self.assertRaises(RuntimeError):
+            ArtifactRedirect().redirect_request(Request("https://api.github.com/repos/example/artifact"),
+                                                 None, 302, "Found", {}, "http://storage.example.com/artifact")
+
     def saved_batch(self, complete=False, batch_date="2026-10-10"):
         archive = io.BytesIO()
         entries = [{"batchDate": batch_date, "file": "ready.mp4", "generator": "agnes-video-2.5-flash"}
