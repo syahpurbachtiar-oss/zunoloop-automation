@@ -130,13 +130,15 @@ def plan(now):
     return entries
 
 
-def recover_missed_slots(entries, output, now):
+def recover_missed_slots(entries, output, now, only_entry=None):
     """Move only unfinished late videos, preserving completed media and other slots."""
     for entry in entries:
         if not timedelta(0) <= trend_age(entry["trend"], now) <= timedelta(hours=36):
             raise RuntimeError("Resume manifest is stale; fresh research required")
     reserved = {(e.get("platform", e["language"]), e["dueAt"]) for e in entries}
     for entry in entries:
+        if only_entry is not None and entry is not only_entry:
+            continue
         due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
         ready = (entry.get("generator") == "agnes-video-2.5-flash"
                  and entry.get("file") and (output / entry["file"]).is_file()
@@ -179,6 +181,12 @@ def prepare():
     else:
         entries = plan(now)
         manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
+    batch_date = next((e["file"][:10] for e in entries if e.get("file")),
+                      now.astimezone(ZoneInfo("Asia/Jakarta")).date().isoformat())
+    for entry in entries:
+        entry.setdefault("batchDate", batch_date)
+    manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
+    incomplete = []
     for entry in entries:
         filename = f"{datetime.fromisoformat(entry['dueAt'].replace('Z', '+00:00')).astimezone(ZoneInfo('Asia/Jakarta')).date()}-{entry.get('platform', entry['language'])}-{entry['slot']}.mp4"
         if entry.get("platform"):
@@ -189,15 +197,27 @@ def prepare():
                 and path.is_file() and path.stat().st_size > 30_000):
             print(f"Reusing verified prior Agnes file {filename}", flush=True)
             continue
-        raw_path = output / "sources" / ("raw-" + filename)
+        raw_path = output / "sources" / ("raw-" + filename[11:] if entry.get("platform") else "raw-" + filename)
         raw_path.parent.mkdir(exist_ok=True)
-        if not raw_path.exists():
-            generate_video(entry["story"]["visual_prompt"], raw_path)
-        finish_video(raw_path, entry["story"], entry["language"], path)
+        try:
+            if not raw_path.exists():
+                generate_video(entry["story"]["visual_prompt"], raw_path)
+            finish_video(raw_path, entry["story"], entry["language"], path)
+        except (RuntimeError, OSError) as exc:
+            # Preserve checkpoints and continue other platforms instead of
+            # letting one overloaded Agnes request block the whole batch.
+            entry["lastError"] = type(exc).__name__
+            incomplete.append(entry)
+            manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
+            print(f"Pending {entry.get('platform', entry['language'])} {entry['slot']}: {type(exc).__name__}", flush=True)
+            continue
+        entry.pop("lastError", None)
         entry["renderProfile"] = PROFILE
         entry["file"] = filename
         entry["generator"] = "agnes-video-2.5-flash"
         manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
+    if incomplete:
+        raise RuntimeError(f"{len(incomplete)} videos incomplete; completed files and Agnes jobs saved for recovery")
     print(f"Created {len(entries)} Agnes video previews")
 
 
@@ -246,17 +266,28 @@ def publish():
                              if entry["platform"] in meta]
             if len(channel_specs) != 1:
                 raise RuntimeError("Invalid platform routing")
-        if datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00")) > now:
-            queue_targets.extend((os.getenv(ch), entry["dueAt"]) for ch, _ in channel_specs)
         pending = [(os.getenv(ch), meta) for ch, meta in channel_specs
                    if not slot_has_post(os.environ["BUFFER_API_KEY"], org_id,
                                         os.getenv(ch), entry["dueAt"])]
         if not pending:
+            if datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00")) > now:
+                queue_targets.extend((os.getenv(ch), entry["dueAt"]) for ch, _ in channel_specs)
             continue
         age = trend_age(entry["trend"], now)
         due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
-        if not timedelta(0) <= age <= timedelta(hours=36) or due <= now + timedelta(minutes=15):
-            raise RuntimeError("Trend is stale or scheduled slot is too close; refusing publication")
+        if not timedelta(0) <= age <= timedelta(hours=36):
+            raise RuntimeError("Trend is stale; refusing publication")
+        if due <= now + timedelta(minutes=15):
+            copies = [dict(e) for e in entries]
+            target = copies[entries.index(entry)]
+            target.pop("file", None)
+            # Other entries reserve their existing slots; only the confirmed
+            # unposted ready video may move during this publication pass.
+            recover_missed_slots(copies, Path("output"), now, only_entry=target)
+            entry["originalDueAt"] = entry.get("originalDueAt", entry["dueAt"])
+            entry["dueAt"] = target["dueAt"]
+            Path("output/manifest.json").write_text(json.dumps(entries, ensure_ascii=False, indent=2))
+        queue_targets.extend((os.getenv(ch), entry["dueAt"]) for ch, _ in channel_specs)
         with urlopen(Request(url, headers={"User-Agent": "ZunoLoopPublisher/1.0"}), timeout=30) as response:
             if response.status != 200 or "video/mp4" not in response.headers.get("Content-Type", ""):
                 raise RuntimeError("Public media URL is not serving MP4: " + url)
