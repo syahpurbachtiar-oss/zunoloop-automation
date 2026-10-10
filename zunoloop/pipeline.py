@@ -96,8 +96,8 @@ def plan(now):
     entries = []
     regional = {}
     for platform, lang, geo, hours in (
-        ("instagram", "id", "ID", (12, 20)),
-        ("tiktok", "id", "ID", (12, 20)),
+        ("instagram", "id", "ID", (18, 20)),
+        ("tiktok", "id", "ID", (18, 20)),
         ("youtube", "en", "US", (6, 8)),
     ):
         # Independent platform coverage first; general search interest is an
