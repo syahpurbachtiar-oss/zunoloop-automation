@@ -31,7 +31,7 @@ concurrency:
 jobs:
   create:
     runs-on: ubuntu-24.04
-    timeout-minutes: 175
+    timeout-minutes: 240
     permissions:
       actions: read
       contents: read
@@ -48,6 +48,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
       - name: Install Python packages
         run: python -m pip install -r requirements.txt
+      - name: Verify platform routing and research safeguards
+        run: python -m unittest discover -s tests -v
       - name: Validate prior run identifier
         if: inputs.resume_run_id != ''
         env:
@@ -64,7 +66,7 @@ jobs:
       - name: Refresh narration and subtitles
         if: inputs.refresh_voice == true
         run: python -m zunoloop.refresh
-      - name: Research and generate four Agnes videos
+      - name: Research and generate six platform-specific Agnes videos
         if: inputs.publish_ready != true && inputs.refresh_voice != true
         run: |
           for attempt in 1 2 3 4 5 6; do
