@@ -102,3 +102,28 @@ def create_video_post(api_key, channel_id, video_url, caption, due_at, metadata)
     if not action.get("post", {}).get("id"):
         raise RuntimeError("Buffer rejected post: " + str(action.get("message", action)))
     return action["post"]
+
+
+
+def verify_scheduled_posts(api_key, organization_id, targets):
+    """Read back exact slots; an accepted mutation alone is not queue proof."""
+    from datetime import datetime, timedelta, timezone
+    receipt = []
+    for channel_id, due_at in targets:
+        target = datetime.fromisoformat(due_at.replace('Z', '+00:00')).astimezone(timezone.utc)
+        result = _graphql(api_key, POSTS_QUERY, {'input': {
+            'organizationId': organization_id,
+            'filter': {'channelIds': [channel_id], 'dueAt': {
+                'start': (target-timedelta(minutes=1)).isoformat(),
+                'end': (target+timedelta(minutes=1)).isoformat()}},
+        }})['posts']
+        if result['pageInfo']['hasNextPage']:
+            raise RuntimeError('Cannot verify paginated queue slot')
+        matches = [e['node'] for e in result['edges'] if e['node'].get('dueAt')
+                   and datetime.fromisoformat(e['node']['dueAt'].replace('Z', '+00:00')).astimezone(timezone.utc) == target
+                   and e['node']['channelId'] == channel_id]
+        if len(matches) != 1 or str(matches[0].get('status', '')).lower() not in ('scheduled', 'pending', 'queued'):
+            raise RuntimeError(f'Buffer slot not uniquely scheduled: {channel_id} {due_at}: {matches}')
+        receipt.append(matches[0])
+        print(f"Verified Buffer queue: {channel_id} {matches[0]['id']} {due_at} {matches[0]['status']}", flush=True)
+    return receipt
