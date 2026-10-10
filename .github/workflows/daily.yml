@@ -20,6 +20,10 @@ on:
         description: Optional prior run with incomplete Agnes videos
         required: false
         type: string
+  workflow_run:
+    workflows: ['ZunoLoop daily video pipeline']
+    types: [completed]
+    branches: [main]
   schedule:
     # Start fresh research and generation at 12:00 WIB for subsequent posting slots.
     - cron: '0 5 * * *'
@@ -32,6 +36,8 @@ concurrency:
 
 jobs:
   create:
+    # Recover trusted main-branch failures; successful runs never start a recovery chain.
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
     outputs:
       skip: ${{ steps.recovery.outputs.skip }}
