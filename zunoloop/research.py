@@ -3,6 +3,7 @@
 This is deliberately NOT a platform ranking API. Missing platform coverage is
 reported, allowing the caller to label its search-interest fallback honestly.
 """
+import re
 from datetime import timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlencode
@@ -14,6 +15,16 @@ EXCLUDE = ("gempa", "bencana", "banjir", "kecelakaan", "meninggal", "war",
            "penipuan", "pembunuhan", "pelecehan", "porn", "bunuh", "suicide",
            "kpu", "pilkada", "pemilu", "partai", "dpr", "president", "presiden",
            "cara mendapatkan uang", "how to make money", "cara menghasilkan uang")
+
+
+def short_topic(headline):
+    # A topic anchor is not the article headline; retain the latter as evidence.
+    song = re.search(r"\bLagu\s+(.+?)(?:\s+yang\s|\s+Viral\s|\s+di TikTok|$)", headline, re.I)
+    topic = song.group(1) if song else re.sub(r"^(Lirik|Lyrics)\s+", "", headline, flags=re.I)
+    topic = topic.strip(" -:,. ")
+    if len(topic) > 60:
+        topic = topic[:61].rsplit(" ", 1)[0].strip(" -:,. ")
+    return topic
 
 
 def platform_topics(platform, market, now):
@@ -39,7 +50,7 @@ def platform_topics(platform, market, now):
         publisher = item.findtext("source", "").strip()
         # Keep the publisher separately; never confuse a headline with a ranking.
         title = title.rsplit(" - " + publisher, 1)[0] if publisher else title
-        if (not title or len(title) > 100 or platform not in title.casefold()
+        if (not title or len(title) > 240 or platform not in title.casefold()
                 or not any(word in title.casefold() for word in ("viral", "trending", "tren ", "trend "))
                 or not source.startswith("https://")
                 or any(word in title.casefold() for word in EXCLUDE)
@@ -52,7 +63,7 @@ def platform_topics(platform, market, now):
         if not timedelta(0) <= age <= timedelta(hours=24):
             continue
         seen.add(title.casefold())
-        candidates.append({"title": title, "source": source, "publisher": publisher,
+        candidates.append({"title": short_topic(title), "headline": title, "source": source, "publisher": publisher,
                            "publishedAt": published, "platform": platform, "market": market,
                            "basis": "public_platform_news_coverage",
                            "platformTrendVerified": False, "discoverySource": feed})
