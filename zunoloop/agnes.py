@@ -1,5 +1,6 @@
 """Agnes text/video API. Fail closed on missing credentials or incomplete media."""
 import json
+import hashlib
 import os
 import re
 import time
@@ -17,7 +18,7 @@ def request_json(path, payload=None):
     if not key:
         raise RuntimeError("AGNES_API_KEY missing")
     video_create = path == "/v1/videos"
-    attempts = 15 if video_create else 5
+    attempts = 3 if video_create else 5
     for retry in range(attempts):
         request = Request(BASE + path,
                           data=json.dumps(payload).encode() if payload is not None else None,
@@ -142,13 +143,26 @@ def create_story(topic, language, platform=None, research_basis="google_search_i
 
 def generate_video(visual_prompt, destination):
     model = VIDEO_MODEL
-    data = request_json("/v1/videos", {"model": model, "prompt": visual_prompt,
-                        "mode": "text", "seconds": "8", "size": "720P",
-                        "aspect_ratio": "9:16", "n": 1})
-    video_id = data.get("video_id")
-    if not video_id:
-        raise RuntimeError("Agnes did not return a video_id")
-    print(f"Agnes accepted video job {video_id}", flush=True)
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint = destination.with_suffix(".job.json")
+    prompt_hash = hashlib.sha256(visual_prompt.encode()).hexdigest()
+    if checkpoint.exists():
+        data = json.loads(checkpoint.read_text())
+        if data.get("prompt_hash") != prompt_hash or data.get("model") != model:
+            raise RuntimeError("Agnes checkpoint does not match the requested video")
+        video_id = data["video_id"]
+        print(f"Resuming existing Agnes job {video_id}", flush=True)
+    else:
+        data = request_json("/v1/videos", {"model": model, "prompt": visual_prompt,
+                            "mode": "text", "seconds": "8", "size": "720P",
+                            "aspect_ratio": "9:16", "n": 1})
+        video_id = data.get("video_id")
+        if not video_id:
+            raise RuntimeError("Agnes did not return a video_id")
+        checkpoint.write_text(json.dumps({"video_id": video_id, "model": model,
+                                         "prompt_hash": prompt_hash}))
+        print(f"Agnes accepted video job {video_id}", flush=True)
     previous_status = None
     deadline = time.monotonic() + 900
     while time.monotonic() < deadline:
@@ -160,6 +174,7 @@ def generate_video(visual_prompt, destination):
             print(f"Agnes job {video_id}: {status}", flush=True)
             previous_status = status
         if status in ("failed", "error", "cancelled"):
+            checkpoint.unlink(missing_ok=True)
             raise RuntimeError("Agnes video generation failed")
         if status in ("completed", "succeeded", "success", "done"):
             video_url = result.get("url")
@@ -179,6 +194,7 @@ def generate_video(visual_prompt, destination):
             if partial.stat().st_size < 20_000:
                 raise RuntimeError("Agnes video download is incomplete")
             partial.replace(destination)
+            checkpoint.unlink(missing_ok=True)
             return
     raise TimeoutError("Agnes video was not ready within 15 minutes")
 
