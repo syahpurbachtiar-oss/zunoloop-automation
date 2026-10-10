@@ -23,6 +23,8 @@ on:
   schedule:
     # Start fresh research and generation at 12:00 WIB for subsequent posting slots.
     - cron: '0 5 * * *'
+    # Recover unfinished work without creating another daily batch.
+    - cron: '7,37 * * * *'
 
 concurrency:
   group: zunoloop-daily
@@ -31,7 +33,9 @@ concurrency:
 jobs:
   create:
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    outputs:
+      skip: ${{ steps.recovery.outputs.skip }}
+    timeout-minutes: 100
     permissions:
       actions: read
       contents: read
@@ -41,43 +45,49 @@ jobs:
       REVIEWED_PLAN: ${{ inputs.reviewed_plan }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select saved batch for automatic recovery
+        id: recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          INPUT_RESUME: ${{ inputs.resume_run_id }}
+          INPUT_PUBLISH: ${{ inputs.publish_ready }}
+        run: python3 -m zunoloop.recovery
       - uses: actions/setup-python@v5
+        if: steps.recovery.outputs.skip != 'true'
         with:
           python-version: '3.12'
       - name: Install video tools
+        if: steps.recovery.outputs.skip != 'true'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
       - name: Install Python packages
+        if: steps.recovery.outputs.skip != 'true'
         run: python -m pip install -r requirements.txt
       - name: Verify platform routing and research safeguards
+        if: steps.recovery.outputs.skip != 'true'
         run: python -m unittest discover -s tests -v
       - name: Validate prior run identifier
-        if: inputs.resume_run_id != ''
+        if: steps.recovery.outputs.resume != ''
         env:
-          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+          RESUME_RUN_ID: ${{ steps.recovery.outputs.resume }}
         run: |
           [[ "$RESUME_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
       - uses: actions/download-artifact@v4
-        if: inputs.resume_run_id != ''
+        if: steps.recovery.outputs.resume != ''
         with:
-          name: zunoloop-${{ inputs.resume_run_id }}
+          name: zunoloop-${{ steps.recovery.outputs.resume }}
           path: output/
-          run-id: ${{ inputs.resume_run_id }}
+          run-id: ${{ steps.recovery.outputs.resume }}
           github-token: ${{ github.token }}
       - name: Refresh narration and subtitles
         if: inputs.refresh_voice == true
         run: python -m zunoloop.refresh
       - name: Research and generate six platform-specific Agnes videos
-        if: inputs.publish_ready != true && inputs.refresh_voice != true
-        run: |
-          for attempt in 1 2 3 4 5 6; do
-            if python -m zunoloop.pipeline; then exit 0; fi
-            if [ "$attempt" -eq 6 ]; then break; fi
-            echo "Generation attempt $attempt failed; keeping completed media and retrying in 90 seconds"
-            sleep 90
-          done
-          exit 1
+        if: steps.recovery.outputs.skip != 'true' && steps.recovery.outputs.publish_ready != 'true' && inputs.refresh_voice != true
+        run: python -m zunoloop.pipeline
       - name: Keep previews for review
-        if: always()
+        if: always() && steps.recovery.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: zunoloop-${{ github.run_id }}
@@ -86,7 +96,7 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    if: always() && !cancelled() && vars.LIVE_PUBLISH == 'true' && (needs.create.result == 'success' || needs.create.result == 'failure')
+    if: always() && !cancelled() && needs.create.outputs.skip != 'true' && vars.LIVE_PUBLISH == 'true' && (needs.create.result == 'success' || needs.create.result == 'failure')
     needs: create
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -159,3 +169,13 @@ jobs:
             sleep 30
           done
           exit 1
+      - name: Preserve publication receipt and recovered slots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zunoloop-${{ github.run_id }}
+          path: output/
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: ignore
+
