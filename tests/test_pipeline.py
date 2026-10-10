@@ -31,6 +31,8 @@ class PlanTests(unittest.TestCase):
              patch("zunoloop.pipeline.organization_for_channels", return_value="org"), \
              patch("zunoloop.pipeline.slot_has_post", side_effect=[True, False, False, False]), \
              patch("zunoloop.pipeline.urlopen") as media, \
+             patch("zunoloop.pipeline.verify_scheduled_posts", return_value=[]), \
+             patch("zunoloop.pipeline.Path.write_text"), \
              patch("zunoloop.pipeline.create_video_post", return_value={"id": "post", "dueAt": "future"}) as create:
             response = media.return_value.__enter__.return_value
             response.status = 200
@@ -38,6 +40,19 @@ class PlanTests(unittest.TestCase):
             publish()
         self.assertEqual([call.args[1] for call in create.call_args_list], ["tt", "ig", "tt"])
         self.assertEqual(media.call_count, 2)
+
+    def test_queue_readback_rejects_failed_or_duplicate_posts(self):
+        from zunoloop.buffer import verify_scheduled_posts
+        due = "2026-10-11T05:00:00Z"
+        post = {"id": "confirmed", "dueAt": due, "channelId": "ig", "status": "scheduled"}
+        def response(nodes):
+            return {"posts": {"edges": [{"node": n} for n in nodes], "pageInfo": {"hasNextPage": False}}}
+        with patch("zunoloop.buffer._graphql", return_value=response([post])):
+            self.assertEqual(verify_scheduled_posts("key", "org", [("ig", due)]), [post])
+        for nodes in ([dict(post, status="failed")], [post, dict(post, id="duplicate")], []):
+            with patch("zunoloop.buffer._graphql", return_value=response(nodes)):
+                with self.assertRaisesRegex(RuntimeError, "not uniquely scheduled"):
+                    verify_scheduled_posts("key", "org", [("ig", due)])
 
     def test_long_story_metadata_is_normalized_without_cutting_narration(self):
         raw = {"title": "Apa Artinya Cinta " + "scene " * 20,
@@ -183,6 +198,8 @@ class PlanTests(unittest.TestCase):
              patch("zunoloop.pipeline.organization_for_channels", return_value="org"), \
              patch("zunoloop.pipeline.slot_has_post", return_value=False), \
              patch("zunoloop.pipeline.urlopen") as media, \
+             patch("zunoloop.pipeline.verify_scheduled_posts", return_value=[]), \
+             patch("zunoloop.pipeline.Path.write_text"), \
              patch("zunoloop.pipeline.create_video_post", return_value={"id": "post", "dueAt": "future"}) as create:
             media.return_value.__enter__.return_value.status = 200
             media.return_value.__enter__.return_value.headers = {"Content-Type": "video/mp4"}
