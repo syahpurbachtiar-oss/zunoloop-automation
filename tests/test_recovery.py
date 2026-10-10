@@ -42,6 +42,18 @@ class RecoveryTests(unittest.TestCase):
             self.assertTrue(choose(datetime(2026, 10, 10, 9, tzinfo=timezone.utc),
                                    "schedule", "7,37 * * * *")["skip"])
 
+    def test_failure_event_resumes_saved_batch_instead_of_new_research(self):
+        with patch("zunoloop.recovery.api", side_effect=[self.run_info(),
+                   {"artifacts": [{"id": 8, "name": "zunoloop-123", "expired": False}]},
+                   self.saved_batch()]):
+            result = choose(datetime(2026, 10, 10, 9, tzinfo=timezone.utc), "workflow_run", "")
+        self.assertEqual(result, {"resume": "123", "skip": False, "publish_ready": False})
+
+    def test_failure_event_without_checkpoint_does_not_start_new_batch(self):
+        with patch("zunoloop.recovery.api", return_value={"workflow_runs": []}):
+            self.assertTrue(choose(datetime(2026, 10, 10, 9, tzinfo=timezone.utc),
+                                   "workflow_run", "")["skip"])
+
     def test_daily_start_does_not_resume_yesterdays_batch_from_today_recovery(self):
         with patch("zunoloop.recovery.api", side_effect=[self.run_info(),
                    {"artifacts": [{"id": 8, "name": "zunoloop-123", "expired": False}]},
