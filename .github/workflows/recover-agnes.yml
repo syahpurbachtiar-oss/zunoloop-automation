@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       skip: ${{ steps.recovery.outputs.skip }}
+      artifact: ${{ steps.preview.outputs.artifact-id }}
     timeout-minutes: 100
     permissions:
       actions: read
@@ -88,6 +89,7 @@ jobs:
         if: steps.recovery.outputs.skip != 'true' && steps.recovery.outputs.publish_ready != 'true' && inputs.refresh_voice != true
         run: python -m zunoloop.pipeline
       - name: Keep previews for review
+        id: preview
         if: always() && steps.recovery.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
@@ -98,7 +100,7 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    if: always() && !cancelled() && needs.create.outputs.skip != 'true' && vars.LIVE_PUBLISH == 'true' && (needs.create.result == 'success' || needs.create.result == 'failure')
+    if: always() && !cancelled() && needs.create.outputs.artifact != '' && needs.create.outputs.skip != 'true' && vars.LIVE_PUBLISH == 'true' && (needs.create.result == 'success' || needs.create.result == 'failure')
     needs: create
     runs-on: ubuntu-24.04
     timeout-minutes: 20
