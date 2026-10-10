@@ -4,16 +4,27 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
+from urllib.request import Request, HTTPRedirectHandler, build_opener
 from zipfile import ZipFile
 from zoneinfo import ZoneInfo
+
+
+class ArtifactRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urlsplit(newurl).scheme != "https":
+            raise RuntimeError("Recovery download requires HTTPS")
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if urlsplit(req.full_url).netloc != urlsplit(newurl).netloc:
+            redirected.remove_header("Authorization")
+        return redirected
 
 
 def api(path, binary=False):
     req = Request("https://api.github.com/repos/" + os.environ["GITHUB_REPOSITORY"] + path,
                   headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
                            "Accept": "application/vnd.github+json"})
-    with urlopen(req, timeout=60) as response:
+    with build_opener(ArtifactRedirect()).open(req, timeout=60) as response:
         if binary:
             data = response.read(256 * 1024 * 1024 + 1)
             if len(data) > 256 * 1024 * 1024:
