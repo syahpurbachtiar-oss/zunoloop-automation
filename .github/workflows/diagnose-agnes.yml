@@ -1,0 +1,30 @@
+name: Diagnose Agnes video service
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    env:
+      AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
+    steps:
+      - name: One neutral free-model request
+        run: |
+          python - <<'PY'
+          import os,json,re
+          from urllib.request import Request,urlopen
+          from urllib.error import HTTPError
+          payload={'model':'agnes-video-2.5-flash','prompt':'A soccer ball rolls across an empty green training field. Original animated scene, gentle camera tracking, vertical 9:16, eight seconds, no text, no logos.','mode':'text','seconds':'8','size':'720P','aspect_ratio':'9:16','n':1}
+          req=Request('https://apihub.agnes-ai.com/v1/videos',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+os.environ['AGNES_API_KEY'],'Content-Type':'application/json'})
+          try:
+              with urlopen(req,timeout=60) as response: result=json.load(response)
+              print('Accepted diagnostic task:',bool(result.get('video_id')))
+          except HTTPError as exc:
+              print('HTTP status:',exc.code)
+              raw=exc.read(4096).decode(errors='replace')
+              raw=raw.replace(os.environ['AGNES_API_KEY'],'[REDACTED]')
+              raw=re.sub(r'https?://[^\s\"<>]+','[URL]',raw)
+              raw=re.sub(r'[A-Za-z0-9_\-]{30,}','[REDACTED]',raw)
+              print('Sanitized service response:',raw[:1000])
+          PY
