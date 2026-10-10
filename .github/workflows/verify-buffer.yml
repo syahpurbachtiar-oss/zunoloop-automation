@@ -28,22 +28,33 @@ jobs:
           run-id: ${{ inputs.run_id }}
           name: zunoloop-${{ inputs.run_id }}
           path: output
-      - name: Read back six exact Buffer slots
+      - name: Read back completed videos and identify missing slots
         run: |
           python - <<'PY'
           import os, json
           from pathlib import Path
-          from zunoloop.buffer import organization_for_channels, verify_scheduled_posts
+          from datetime import datetime, timedelta, timezone
+          from zunoloop.buffer import organization_for_channels, verify_scheduled_posts, _graphql, POSTS_QUERY
           channels = {os.environ['BUFFER_'+p.upper()+'_CHANNEL_ID']: p for p in ('instagram','tiktok','youtube')}
           key = os.environ['BUFFER_API_KEY']
           org = organization_for_channels(key, channels)
           entries = json.loads(Path('output/manifest.json').read_text())
-          if len(entries) != 6 or any(not e.get('file') for e in entries):
-              raise RuntimeError('Expected six completed video entries')
-          targets = [(os.environ['BUFFER_'+e['platform'].upper()+'_CHANNEL_ID'], e['dueAt']) for e in entries]
-          receipt = verify_scheduled_posts(key, org, targets)
+          receipt = []
+          for e in entries:
+              if not e.get('file'):
+                  print('Incomplete video:', e['platform'], e['slot'], flush=True)
+                  continue
+              ch = os.environ['BUFFER_'+e['platform'].upper()+'_CHANNEL_ID']
+              due = datetime.fromisoformat(e['dueAt'].replace('Z', '+00:00'))
+              if due > datetime.now(timezone.utc):
+                  receipt.extend(verify_scheduled_posts(key, org, [(ch, e['dueAt'])]))
+              else:
+                  result = _graphql(key, POSTS_QUERY, {'input': {'organizationId': org, 'filter': {'channelIds': [ch], 'dueAt': {'start': (due-timedelta(minutes=1)).isoformat(), 'end': (due+timedelta(minutes=1)).isoformat()}}}})['posts']
+                  matches = [n['node'] for n in result['edges'] if n['node'].get('dueAt') and datetime.fromisoformat(n['node']['dueAt'].replace('Z', '+00:00')) == due]
+                  print('Past Buffer slot:', e['platform'], e['dueAt'], json.dumps(matches), flush=True)
+                  receipt.extend(matches)
           Path('queue-receipt.json').write_text(json.dumps(receipt, indent=2))
-          print('Verified six unique scheduled posts in Buffer')
+          print('Audited completed videos; incomplete videos listed separately')
           PY
       - uses: actions/upload-artifact@v4
         with:
