@@ -23,11 +23,11 @@ def api(path, binary=False):
 
 
 def choose(now, event, schedule, requested="", publish_ready=False):
-    if event != "schedule":
+    if event not in ("schedule", "workflow_run"):
         if requested and not requested.isdigit():
             raise RuntimeError("Invalid recovery run ID")
         return {"resume": requested, "skip": False, "publish_ready": publish_ready}
-    fresh_start = schedule == "0 5 * * *"
+    fresh_start = event == "schedule" and schedule == "0 5 * * *"
     today = now.astimezone(ZoneInfo("Asia/Jakarta")).date()
     runs = api("/actions/workflows/daily.yml/runs?per_page=30")["workflow_runs"]
     for run in runs:
