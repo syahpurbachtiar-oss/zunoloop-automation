@@ -21,8 +21,8 @@ on:
         required: false
         type: string
   schedule:
-    # 07:00 WIB leaves time for a busy video queue before the 12:00 post.
-    - cron: '0 0 * * *'
+    # Start fresh research and generation at 12:00 WIB for subsequent posting slots.
+    - cron: '0 5 * * *'
 
 concurrency:
   group: zunoloop-daily
