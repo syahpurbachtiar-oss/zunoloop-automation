@@ -135,18 +135,50 @@ class PlanTests(unittest.TestCase):
 
     @patch.dict("os.environ", {"AGNES_API_KEY": "test"})
     @patch("zunoloop.pipeline.create_story", return_value={"title": "test"})
+    @patch("zunoloop.pipeline.platform_topics", side_effect=[[], [], []])
     @patch("zunoloop.pipeline.trends")
-    def test_two_localized_trend_sources_and_youtube_slots(self, trends, story):
-        trends.side_effect = [[{"title": "topik 1"}, {"title": "topik 2"}],
-                              [{"title": "topic 1"}, {"title": "topic 2"}]]
+    def test_separate_platform_batches_label_fallback(self, trends, coverage, story):
+        trends.side_effect = [[{"title": f"topik {i}", "source": "https://example.com"} for i in range(4)],
+                              [{"title": f"topic {i}", "source": "https://example.com"} for i in range(2)]]
         entries = plan(datetime(2026, 10, 4, 2, 0, tzinfo=timezone.utc))
+        self.assertEqual([e["platform"] for e in entries],
+                         ["instagram", "instagram", "tiktok", "tiktok", "youtube", "youtube"])
         self.assertEqual([e["trend"]["title"] for e in entries],
-                         ["topik 1", "topik 2", "topic 1", "topic 2"])
-        self.assertEqual([e["dueAt"] for e in entries],
-                         ["2026-10-04T05:00:00Z", "2026-10-04T13:00:00Z",
-                          "2026-10-04T23:00:00Z", "2026-10-05T01:00:00Z"])
+                         ["topik 0", "topik 1", "topik 2", "topik 3", "topic 0", "topic 1"])
+        self.assertTrue(all(not e["trend"]["platformTrendVerified"] for e in entries))
+        self.assertEqual(coverage.call_count, 3)
+        self.assertEqual(story.call_count, 6)
+        self.assertEqual([e["dueAt"] for e in entries[-2:]],
+                         ["2026-10-04T23:00:00Z", "2026-10-05T01:00:00Z"])
+
+    def test_platform_video_never_crossposts_to_other_indonesian_channel(self):
+        from zunoloop.pipeline import valid_batch
+        now = datetime.now(timezone.utc)
+        entries = []
+        for platform in ("instagram", "tiktok", "youtube"):
+            for slot in (1, 2):
+                entries.append({"platform": platform, "language": "en" if platform == "youtube" else "id",
+                                "slot": slot, "trend": {"publishedAt": format_datetime(now)},
+                                "dueAt": (now + timedelta(hours=4+slot)).isoformat(),
+                                "story": {"title": "Test", "caption": "Illustration"}})
+        self.assertTrue(valid_batch(entries))
+        entries[0].update(file="ig.mp4", generator="agnes-video-2.5-flash")
+        env = {"LIVE_PUBLISH": "true", "BUFFER_API_KEY": "test",
+               "BUFFER_INSTAGRAM_CHANNEL_ID": "ig", "BUFFER_TIKTOK_CHANNEL_ID": "tt",
+               "BUFFER_YOUTUBE_CHANNEL_ID": "yt", "MEDIA_BASE_URL": "https://example.com"}
+        with patch.dict(os.environ, env), \
+             patch("zunoloop.pipeline.Path.read_text", return_value=json.dumps(entries)), \
+             patch("zunoloop.pipeline.organization_for_channels", return_value="org"), \
+             patch("zunoloop.pipeline.slot_has_post", return_value=False), \
+             patch("zunoloop.pipeline.urlopen") as media, \
+             patch("zunoloop.pipeline.create_video_post", return_value={"id": "post", "dueAt": "future"}) as create:
+            media.return_value.__enter__.return_value.status = 200
+            media.return_value.__enter__.return_value.headers = {"Content-Type": "video/mp4"}
+            publish()
+        self.assertEqual([call.args[1] for call in create.call_args_list], ["ig"])
+        entries[0]["platform"] = "tiktok"
+        self.assertFalse(valid_batch(entries))
 
 
 if __name__ == "__main__":
     unittest.main()
-
