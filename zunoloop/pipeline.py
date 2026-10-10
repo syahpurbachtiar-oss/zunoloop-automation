@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from .buffer import create_video_post, organization_for_channels, slot_has_post
 from .agnes import create_story, generate_video
 from .render import finish_video, PROFILE
+from .research import platform_topics
 
 
 EXCLUDE = ("gempa", "bencana", "banjir", "kecelakaan", "meninggal",
@@ -44,7 +45,7 @@ def trends(geo):
         unique = {item["title"].casefold(): item for item in reversed(results)}
         if len(unique) < 2:
             raise RuntimeError(f"Fewer than two suitable trends in the past 24h for {geo}")
-        return list(unique.values())[:2]
+        return list(unique.values())[:8]
     except (OSError, ElementTree.ParseError) as exc:
         raise RuntimeError(f"Cannot fetch fresh Google Trends for {geo}") from exc
 
@@ -68,6 +69,15 @@ def trend_age(trend, now):
     return now - parsedate_to_datetime(trend["publishedAt"]).astimezone(timezone.utc)
 
 
+def valid_batch(entries):
+    if len(entries) == 4 and all("platform" not in e for e in entries):
+        return sorted(e.get("language", "") for e in entries) == ["en", "en", "id", "id"]
+    expected = {(p, i) for p in ("instagram", "tiktok", "youtube") for i in (1, 2)}
+    return (len(entries) == 6 and {(e.get("platform"), e.get("slot")) for e in entries} == expected
+            and all(e.get("language") == ("en" if e.get("platform") == "youtube" else "id")
+                    for e in entries))
+
+
 def plan(now):
     if not os.getenv("AGNES_API_KEY"):
         raise RuntimeError("AGNES_API_KEY is required; refusing template videos")
@@ -77,7 +87,7 @@ def plan(now):
         if path.parent != Path("plans") or path.suffix != ".json":
             raise RuntimeError("Reviewed plan must be a plans/*.json file")
         entries = json.loads(path.read_text())
-        if len(entries) != 4 or sorted(e.get("language") for e in entries) != ["en", "en", "id", "id"]:
+        if not valid_batch(entries):
             raise RuntimeError("Invalid reviewed batch")
         for entry in entries:
             trend_age(entry["trend"], now)
@@ -85,19 +95,40 @@ def plan(now):
             if due <= now + timedelta(minutes=15):
                 raise RuntimeError("Reviewed slot has passed")
         return entries
-    topics_id, topics_en = trends("ID"), trends("US")
     entries = []
-    for lang, topics, hours in (
-        ("id", topics_id, (12, 20)),
-        ("en", topics_en, (6, 8)),
+    regional = {}
+    for platform, lang, geo, hours in (
+        ("instagram", "id", "ID", (12, 20)),
+        ("tiktok", "id", "ID", (12, 20)),
+        ("youtube", "en", "US", (6, 8)),
     ):
+        # Independent platform coverage first; general search interest is an
+        # explicitly labelled fallback, never a claim of platform virality.
+        topics = platform_topics(platform, geo, now)
+        if len(topics) < 2:
+            if geo not in regional:
+                regional[geo] = trends(geo)
+            fallback = regional[geo]
+            if platform == "tiktok":
+                fallback = fallback[2:] + fallback[:2]
+            used = {t["title"].casefold() for t in topics}
+            for topic in fallback:
+                if topic["title"].casefold() not in used:
+                    topics.append(dict(topic, platform=platform, market=geo,
+                                       basis="google_search_interest",
+                                       platformTrendVerified=False))
+                    used.add(topic["title"].casefold())
+                if len(topics) == 2:
+                    break
+        if len(topics) < 2:
+            raise RuntimeError(f"Insufficient fresh research for {platform}")
         for index, topic in enumerate(topics[:2]):
-            story = create_story(topic["title"], lang)
-            hour = hours[index]
-            entries.append({"language": lang, "slot": index + 1,
-                            "trend": topic,
-                            "story": story,
-                            "dueAt": next_slot(now, "Asia/Jakarta", hour, 0)})
+            print(f"Research {platform}: {topic['title']} [{topic['basis']}] {topic['source']}", flush=True)
+            story = create_story(topic["title"], lang, platform=platform,
+                                 research_basis=topic["basis"])
+            entries.append({"platform": platform, "language": lang, "slot": index + 1,
+                            "trend": topic, "story": story,
+                            "dueAt": next_slot(now, "Asia/Jakarta", hours[index], 0)})
     return entries
 
 
@@ -108,7 +139,7 @@ def prepare():
     manifest = output / "manifest.json"
     if manifest.exists():
         entries = json.loads(manifest.read_text())
-        if len(entries) != 4 or sorted(entry.get("language") for entry in entries) != ["en", "en", "id", "id"]:
+        if not valid_batch(entries):
             raise RuntimeError("Invalid resume manifest")
         for entry in entries:
             age = trend_age(entry["trend"], now)
@@ -121,7 +152,7 @@ def prepare():
         entries = plan(now)
         manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
     for entry in entries:
-        filename = f"{datetime.fromisoformat(entry['dueAt'].replace('Z', '+00:00')).astimezone(ZoneInfo('Asia/Jakarta')).date()}-{entry['language']}-{entry['slot']}.mp4"
+        filename = f"{datetime.fromisoformat(entry['dueAt'].replace('Z', '+00:00')).astimezone(ZoneInfo('Asia/Jakarta')).date()}-{entry.get('platform', entry['language'])}-{entry['slot']}.mp4"
         path = output / filename
         if (entry.get("file") == filename and entry.get("generator") == "agnes-video-2.5-flash"
                 and path.is_file() and path.stat().st_size > 30_000):
@@ -136,7 +167,7 @@ def prepare():
         entry["file"] = filename
         entry["generator"] = "agnes-video-2.5-flash"
         manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
-    print("Created four Agnes video previews")
+    print(f"Created {len(entries)} Agnes video previews")
 
 
 def publish():
@@ -155,7 +186,7 @@ def publish():
                 os.environ["BUFFER_YOUTUBE_CHANNEL_ID"]: "youtube"}
     org_id = organization_for_channels(os.environ["BUFFER_API_KEY"], expected)
     entries = json.loads(Path("output/manifest.json").read_text())
-    if len(entries) != 4 or sorted(entry.get("language") for entry in entries) != ["en", "en", "id", "id"]:
+    if not valid_batch(entries):
         raise RuntimeError("Invalid source-grounded batch")
     ready = [entry for entry in entries if entry.get("file")
              and entry.get("generator") == "agnes-video-2.5-flash"
@@ -178,6 +209,11 @@ def publish():
                                                            "categoryId": "24", "isAiGenerated": True,
                                                            "madeForKids": False}}),
         ])
+        if entry.get("platform"):
+            channel_specs = [(ch, meta) for ch, meta in channel_specs
+                             if entry["platform"] in meta]
+            if len(channel_specs) != 1:
+                raise RuntimeError("Invalid platform routing")
         pending = [(os.getenv(ch), meta) for ch, meta in channel_specs
                    if not slot_has_post(os.environ["BUFFER_API_KEY"], org_id,
                                         os.getenv(ch), entry["dueAt"])]
