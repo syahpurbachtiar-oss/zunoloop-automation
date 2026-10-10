@@ -39,6 +39,18 @@ class PlanTests(unittest.TestCase):
         self.assertEqual([call.args[1] for call in create.call_args_list], ["tt", "ig", "tt"])
         self.assertEqual(media.call_count, 2)
 
+    def test_long_story_metadata_is_normalized_without_cutting_narration(self):
+        raw = {"title": "Apa Artinya Cinta " + "scene " * 20,
+               "caption": "An original illustration " * 20 + "#Music #Mood",
+               "voice": "Pernah merasa begini? Ceritakan versimu!",
+               "visual_prompt": "An original couple sharing a warm smile in a vertical 9:16 shot."}
+        with patch("zunoloop.agnes.request_json", return_value={"choices": [{"message": {"content": json.dumps(raw)}}]}):
+            result = create_story("Apa Artinya Cinta", "id", platform="tiktok")
+        self.assertLessEqual(len(result["title"]), 80)
+        self.assertLessEqual(len(result["caption"]), 220)
+        self.assertIn("Apa Artinya Cinta", result["caption"])
+        self.assertEqual(result["voice"], raw["voice"])
+
     def test_story_rewrites_long_narration_without_truncating_joke(self):
         raw = {"title": "belanda vs serbia fans", "caption": "Original illustration inspired by belanda vs serbia. #sport #fans #stadium #match #football",
                "voice": " ".join(["Watch"] + ["fans"] * 24),
