@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
-EXCLUDE = ("gempa", "bencana", "banjir", "kecelakaan", "meninggal", "war",
+EXCLUDE = ("tsunami", "erupsi", "krakatau", "volcano", "earthquake", "disaster", "gempa", "bencana", "banjir", "kecelakaan", "meninggal", "war",
            "attack", "shooting", "death", "election", "politik", "scam",
            "penipuan", "pembunuhan", "pelecehan", "porn", "bunuh", "suicide",
            "kpu", "pilkada", "pemilu", "partai", "dpr", "president", "presiden",
