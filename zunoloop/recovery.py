@@ -29,8 +29,12 @@ def choose(now, event, schedule, requested="", publish_ready=False):
         return {"resume": requested, "skip": False, "publish_ready": publish_ready}
     fresh_start = event == "schedule" and schedule == "0 5 * * *"
     today = now.astimezone(ZoneInfo("Asia/Jakarta")).date()
-    runs = api("/actions/workflows/daily.yml/runs?per_page=30")["workflow_runs"]
+    runs = api("/actions/runs?per_page=30")["workflow_runs"]
     for run in runs:
+        if run.get("name", "ZunoLoop daily video pipeline") not in (
+            "ZunoLoop daily video pipeline", "ZunoLoop recover saved videos"
+        ):
+            continue
         created = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
         if now - created > timedelta(hours=36):
             break
