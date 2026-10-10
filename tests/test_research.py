@@ -10,6 +10,7 @@ class ResearchTests(unittest.TestCase):
     def test_platform_coverage_excludes_stale_future_and_unrelated_headlines(self):
         now = datetime.now(timezone.utc)
         rows = [('TikTok tren kopi Indonesia', now),
+                ('Viral Tsunami 60 Meter Akibat Erupsi Anak Krakatau di TikTok', now),
                 ('TikTok tren lama', now-timedelta(hours=25)),
                 ('TikTok tren masa depan', now+timedelta(hours=2)),
                 ('Instagram tren Indonesia', now)]
