@@ -93,6 +93,7 @@ jobs:
         with:
           name: zunoloop-${{ github.run_id }}
           path: output/
+          overwrite: true
           retention-days: 7
           if-no-files-found: ignore
 
