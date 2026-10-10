@@ -55,7 +55,7 @@ def create_story(topic, language, platform=None, research_basis="google_search_i
         "Return ONLY JSON fields title (max 80 characters), caption (max 220 characters "
         "with 2-4 relevant hashtags), voice (max 15 Indonesian or 18 English words), visual_prompt (max 900 characters). "
         "The visual_prompt must specify a coherent 9:16 8-second shot with visible motion, "
-        "no logos, no text overlays, and characters/objects appropriate for the trend. "
+        "no logos, no text overlays, and characters/objects appropriate for the trend. Never quote lyrics or use existing music.  "
         "Include a hook in voice during the first two seconds. No unverified factual claims. "
         "Invite a comment about the real topic. In the caption make clear the visual is "
         "an original illustration inspired by the topic, not event footage. "
@@ -88,6 +88,8 @@ def create_story(topic, language, platform=None, research_basis="google_search_i
             rejection = "Return valid JSON only"
             continue
         if isinstance(story, dict):
+            if isinstance(story.get("title"), str) and len(story["title"]) > 80:
+                story["title"] = story["title"][:81].rsplit(" ", 1)[0].rstrip(" ,.-:")
             # Agnes often exceeds formatting limits even after a corrective prompt.
             # Keep the hook and normalize only mechanical length/tag constraints.
             if isinstance(story.get("voice"), str):
@@ -103,11 +105,15 @@ def create_story(topic, language, platform=None, research_basis="google_search_i
                 if len(tags) < 2:
                     defaults = ("#ZunoLoop", "#Ilustrasi") if language == "id" else ("#ZunoLoop", "#OriginalShort")
                     caption = caption.rstrip() + " " + " ".join(defaults[:2 - len(tags)])
+                if len(caption) > 220:
+                    tags_text = " ".join(re.findall(r"(?<!\w)#[\w]+", caption)[:4])
+                    prefix = "Ilustrasi orisinal" if language == "id" else "Original illustration"
+                    caption = f"{prefix}: {topic}. {tags_text}"
                 story["caption"] = re.sub(r"\s{2,}", " ", caption).strip()
         if any(not isinstance(story.get(field), str) or not 2 < len(story[field]) <= limit
                for field, limit in (("title", 80), ("caption", 220), ("voice", 350),
                                     ("visual_prompt", 900))):
-            rejection = "Use exactly the required fields and character limits"
+            rejection = "Invalid field lengths: " + ", ".join(f"{f}={len(story.get(f, '')) if isinstance(story.get(f), str) else 'missing'} (max {limit})" for f,limit in (("title",80),("caption",220),("voice",350),("visual_prompt",900)))
             continue
         if len(story["voice"].split()) > (15 if language == "id" else 18) or not 2 <= story["caption"].count("#") <= 4:
             rejection = "Voice must be at most 22 words and caption must have 2 to 4 hashtags"
