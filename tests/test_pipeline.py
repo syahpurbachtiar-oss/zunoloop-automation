@@ -14,6 +14,35 @@ from zunoloop.agnes import create_story
 
 
 class PlanTests(unittest.TestCase):
+    def test_one_failed_video_does_not_block_remaining_videos(self):
+        now = datetime.now(timezone.utc)
+        entries = [{"language": lang, "slot": i % 2 + 1,
+                    "trend": {"publishedAt": format_datetime(now)},
+                    "dueAt": (now + timedelta(hours=4+i)).isoformat(),
+                    "story": {"visual_prompt": f"scene {i}"}}
+                   for i, lang in enumerate(("id", "id", "en", "en"))]
+        def generate(prompt, path):
+            if prompt == "scene 0":
+                raise RuntimeError("Agnes API HTTP 503")
+            Path(path).write_bytes(b"raw")
+        def render(raw, story, lang, path):
+            Path(path).write_bytes(b"v" * 31000)
+        with TemporaryDirectory() as temp:
+            old = os.getcwd()
+            try:
+                os.chdir(temp)
+                Path("output").mkdir()
+                Path("output/manifest.json").write_text(json.dumps(entries))
+                with patch("zunoloop.pipeline.generate_video", side_effect=generate) as video, \
+                     patch("zunoloop.pipeline.finish_video", side_effect=render):
+                    with self.assertRaisesRegex(RuntimeError, "1 videos incomplete"):
+                        prepare()
+                saved = json.loads(Path("output/manifest.json").read_text())
+                self.assertEqual(video.call_count, 4)
+                self.assertEqual(sum(bool(e.get("file")) for e in saved), 3)
+            finally:
+                os.chdir(old)
+
     def test_recovery_preserves_completed_video_and_avoids_reserved_slot(self):
         from zunoloop.pipeline import recover_missed_slots
         now = datetime(2026, 10, 10, 8, 0, tzinfo=timezone.utc)
