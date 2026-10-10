@@ -1,5 +1,6 @@
 """Research, script, render, host, and schedule two videos per channel per day."""
 import json
+import hashlib
 import os
 import argparse
 from datetime import datetime, time, timedelta, timezone
@@ -153,6 +154,9 @@ def prepare():
         manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
     for entry in entries:
         filename = f"{datetime.fromisoformat(entry['dueAt'].replace('Z', '+00:00')).astimezone(ZoneInfo('Asia/Jakarta')).date()}-{entry.get('platform', entry['language'])}-{entry['slot']}.mp4"
+        if entry.get("platform"):
+            digest = hashlib.sha256(json.dumps(entry["story"], sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
+            filename = filename.removesuffix(".mp4") + "-" + digest + ".mp4"
         path = output / filename
         if (entry.get("file") == filename and entry.get("generator") == "agnes-video-2.5-flash"
                 and path.is_file() and path.stat().st_size > 30_000):
