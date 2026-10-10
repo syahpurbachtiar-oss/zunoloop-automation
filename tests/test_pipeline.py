@@ -14,6 +14,36 @@ from zunoloop.agnes import create_story
 
 
 class PlanTests(unittest.TestCase):
+    def test_late_ready_video_moves_only_after_buffer_confirms_it_is_unposted(self):
+        now = datetime(2026, 10, 10, 8, 0, tzinfo=timezone.utc)
+        entries = []
+        for platform in ("instagram", "tiktok", "youtube"):
+            for slot in (1, 2):
+                entries.append({"platform": platform, "language": "en" if platform == "youtube" else "id",
+                                "slot": slot, "trend": {"publishedAt": format_datetime(now)},
+                                "dueAt": "2026-10-10T05:00:00Z" if platform == "instagram" and slot == 1 else
+                                         (now + timedelta(hours=5+slot)).isoformat(),
+                                "story": {"caption": "Original illustration"}})
+        entries[0].update(file="ready.mp4", generator="agnes-video-2.5-flash")
+        env = {"LIVE_PUBLISH": "true", "BUFFER_API_KEY": "test",
+               "BUFFER_INSTAGRAM_CHANNEL_ID": "ig", "BUFFER_TIKTOK_CHANNEL_ID": "tt",
+               "BUFFER_YOUTUBE_CHANNEL_ID": "yt", "MEDIA_BASE_URL": "https://example.com"}
+        with patch.dict(os.environ, env), \
+             patch("zunoloop.pipeline.datetime", wraps=datetime) as clock, \
+             patch("zunoloop.pipeline.Path.read_text", return_value=json.dumps(entries)), \
+             patch("zunoloop.pipeline.Path.write_text"), \
+             patch("zunoloop.pipeline.organization_for_channels", return_value="org"), \
+             patch("zunoloop.pipeline.slot_has_post", return_value=False), \
+             patch("zunoloop.pipeline.verify_scheduled_posts", return_value=[]), \
+             patch("zunoloop.pipeline.urlopen") as media, \
+             patch("zunoloop.pipeline.create_video_post", return_value={"id": "post", "dueAt": "future"}) as create:
+            clock.now.return_value = now
+            response = media.return_value.__enter__.return_value
+            response.status = 200
+            response.headers = {"Content-Type": "video/mp4"}
+            publish()
+        self.assertEqual(create.call_args.args[4], "2026-10-10T11:00:00Z")
+
     def test_one_failed_video_does_not_block_remaining_videos(self):
         now = datetime.now(timezone.utc)
         entries = [{"language": lang, "slot": i % 2 + 1,
