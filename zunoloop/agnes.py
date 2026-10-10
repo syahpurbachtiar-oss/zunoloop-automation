@@ -36,11 +36,13 @@ def request_json(path, payload=None):
     raise RuntimeError("Agnes API retry limit")
 
 
-def create_story(topic, language):
+def create_story(topic, language, platform=None, research_basis="google_search_interest"):
     language_name = "Bahasa Indonesia" if language == "id" else "English for a US audience"
     prompt = (
         f"Create an original 8-second vertical short in {language_name}, inspired by today's "
-        f"Google Trends search phrase {topic!r}. Do not say it is viral, state any news result, "
+        f"topic signal {topic!r}. Research basis: {research_basis}. Target: {platform or language}. "
+        "This signal is inspiration only, not verified platform virality or a verified news fact. "
+        "Do not say it is viral, state any news result, "
         "invent facts about real people, reproduce footage, show logos, or imitate protected characters. "
         "Understand what the search phrase actually refers to and keep its category intact. "
         "A sports fixture must be shown through an original sports scene or fans, never "
@@ -51,17 +53,21 @@ def create_story(topic, language):
         "Use an original illustrative scene that makes the actual topic recognizable, "
         "without claiming it is real footage or making a prediction. "
         "Return ONLY JSON fields title (max 80 characters), caption (max 220 characters "
-        "with 2-4 relevant hashtags), voice (max 22 words), visual_prompt (max 900 characters). "
+        "with 2-4 relevant hashtags), voice (max 15 Indonesian or 18 English words), visual_prompt (max 900 characters). "
         "The visual_prompt must specify a coherent 9:16 8-second shot with visible motion, "
         "no logos, no text overlays, and characters/objects appropriate for the trend. "
         "Include a hook in voice during the first two seconds. No unverified factual claims. "
         "Invite a comment about the real topic. In the caption make clear the visual is "
-        "an original illustration inspired by the search trend, not event footage. "
+        "an original illustration inspired by the topic, not event footage. "
         f"Include the EXACT search phrase {topic!r} somewhere in title or caption, and "
         "visually connect the scene to that phrase."
     )
     prompt += " Use short conversational phrases with expressive punctuation and natural pauses. "
     prompt += "For Indonesian use at most 15 words; for English at most 18 words. Avoid tongue-twisters."
+    prompt += " Do not force talking objects; choose people, objects or settings only when relevant. "
+    prompt += ("For Instagram prioritize an instantly readable visual reveal. " if platform == "instagram" else
+               "For TikTok prioritize a relatable Indonesian situation and quick payoff. " if platform == "tiktok" else
+               "For YouTube Shorts use a clear English curiosity hook and visual payoff. ")
     rejection = ""
     for attempt in range(5):
         reminder = (f" Your previous response was rejected: {rejection}. Correct that issue "
@@ -162,3 +168,4 @@ def generate_video(visual_prompt, destination):
                 raise RuntimeError("Agnes video download is incomplete")
             return
     raise TimeoutError("Agnes video was not ready within 15 minutes")
+
