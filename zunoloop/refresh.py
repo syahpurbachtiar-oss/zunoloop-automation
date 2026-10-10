@@ -50,7 +50,7 @@ def replace_queued():
         target=datetime.fromisoformat(entry['dueAt'].replace('Z','+00:00'))
         if target<=datetime.now(timezone.utc)+timedelta(minutes=15):
             raise RuntimeError('Queued upgrade is too close to publication')
-        channels=[c for c,s in expected.items() if (s=='youtube') == (entry['language']=='en')]
+        channels=[c for c,s in expected.items() if (s == entry['platform'] if entry.get('platform') else (s=='youtube') == (entry['language']=='en'))]
         for ch in channels:
             result=_graphql(key, POSTS_QUERY, {'input':{'organizationId':org,'filter':{'channelIds':[ch],'dueAt':{'start':(target-timedelta(minutes=1)).isoformat(),'end':(target+timedelta(minutes=1)).isoformat()}}}})['posts']
             for edge in result['edges']:
