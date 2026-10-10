@@ -54,6 +54,16 @@ class RecoveryTests(unittest.TestCase):
             self.assertTrue(choose(datetime(2026, 10, 10, 9, tzinfo=timezone.utc),
                                    "workflow_run", "")["skip"])
 
+    def test_recovery_resumes_newest_recovery_artifact_not_unrelated_run(self):
+        runs = self.run_info()
+        runs["workflow_runs"][0]["name"] = "ZunoLoop recover saved videos"
+        runs["workflow_runs"].insert(0, {"name": "Verify Buffer video batch"})
+        with patch("zunoloop.recovery.api", side_effect=[runs,
+                   {"artifacts": [{"id": 8, "name": "zunoloop-123", "expired": False}]},
+                   self.saved_batch()]):
+            result = choose(datetime(2026, 10, 10, 9, tzinfo=timezone.utc), "workflow_run", "")
+        self.assertEqual(result["resume"], "123")
+
     def test_daily_start_does_not_resume_yesterdays_batch_from_today_recovery(self):
         with patch("zunoloop.recovery.api", side_effect=[self.run_info(),
                    {"artifacts": [{"id": 8, "name": "zunoloop-123", "expired": False}]},
