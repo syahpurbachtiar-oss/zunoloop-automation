@@ -3,7 +3,7 @@ from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 from email.utils import format_datetime
 from xml.sax.saxutils import escape
-from zunoloop.research import platform_topics
+from zunoloop.research import platform_topics, short_topic
 
 
 class ResearchTests(unittest.TestCase):
@@ -29,3 +29,8 @@ class ResearchTests(unittest.TestCase):
     def test_missing_coverage_is_not_fabricated(self):
         with patch('zunoloop.research.urlopen', side_effect=OSError('unavailable')):
             self.assertEqual(platform_topics('instagram', 'ID', datetime.now(timezone.utc)), [])
+
+class HeadlineTests(unittest.TestCase):
+    def test_long_song_article_keeps_meaningful_short_anchor(self):
+        self.assertEqual(short_topic("Lirik Lagu Dulug Dug Dag Kicau Mania yang Lagi Viral Terbaru di TikTok: Permisi Kak Kita Lagi Ngamen"), "Dulug Dug Dag Kicau Mania")
+        self.assertEqual(short_topic("Lirik Belum Juga kah Kau Menyadarinya Viral di Tiktok, Lagu Apa Artinya Cinta - Melly Goeslaw"), "Apa Artinya Cinta - Melly Goeslaw")
