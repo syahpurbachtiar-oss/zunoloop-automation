@@ -14,6 +14,32 @@ from zunoloop.agnes import create_story
 
 
 class PlanTests(unittest.TestCase):
+    def test_recovery_preserves_completed_video_and_avoids_reserved_slot(self):
+        from zunoloop.pipeline import recover_missed_slots
+        now = datetime(2026, 10, 10, 8, 0, tzinfo=timezone.utc)
+        entries = [{"platform": p, "language": "id", "slot": slot,
+                    "trend": {"publishedAt": format_datetime(now - timedelta(hours=8))},
+                    "dueAt": f"2026-10-10T{hour}:00:00Z"}
+                   for p, slot, hour in (("instagram", 1, "05"), ("tiktok", 1, "05"),
+                                         ("tiktok", 2, "13"))]
+        with TemporaryDirectory() as temp:
+            output = Path(temp)
+            (output / "done.mp4").write_bytes(b"v" * 31000)
+            entries[0].update(file="done.mp4", generator="agnes-video-2.5-flash")
+            recover_missed_slots(entries, output, now)
+        self.assertEqual([e["dueAt"] for e in entries],
+                         ["2026-10-10T05:00:00Z", "2026-10-10T11:00:00Z", "2026-10-10T13:00:00Z"])
+        self.assertEqual(entries[1]["originalDueAt"], "2026-10-10T05:00:00Z")
+
+    def test_recovery_rejects_stale_research_before_changing_slots(self):
+        from zunoloop.pipeline import recover_missed_slots
+        now = datetime(2026, 10, 10, 8, 0, tzinfo=timezone.utc)
+        entries = [{"language": "id", "dueAt": "2026-10-10T05:00:00Z",
+                    "trend": {"publishedAt": format_datetime(now - timedelta(hours=40))}}]
+        with self.assertRaisesRegex(RuntimeError, "stale"):
+            recover_missed_slots(entries, Path("."), now)
+        self.assertEqual(entries[0]["dueAt"], "2026-10-10T05:00:00Z")
+
     def test_partial_batch_publishes_ready_localized_videos_without_duplicates(self):
         now = datetime.now(timezone.utc)
         entries = [{"language": lang, "slot": i % 2 + 1,
