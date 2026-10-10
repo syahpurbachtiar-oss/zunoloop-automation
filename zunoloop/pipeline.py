@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
-from .buffer import create_video_post, organization_for_channels, slot_has_post
+from .buffer import create_video_post, organization_for_channels, slot_has_post, verify_scheduled_posts
 from .agnes import create_story, generate_video
 from .render import finish_video, PROFILE
 from .research import platform_topics, EXCLUDE
@@ -196,6 +196,7 @@ def publish():
         raise RuntimeError("No completed Agnes videos available for publication")
     print(f"Publishing {len(ready)} completed Agnes videos; {len(entries) - len(ready)} still pending", flush=True)
     now = datetime.now(timezone.utc)
+    queue_targets = []
     for entry in ready:
         filename = entry["file"]
         if Path(filename).name != filename or not filename.endswith(".mp4"):
@@ -215,6 +216,8 @@ def publish():
                              if entry["platform"] in meta]
             if len(channel_specs) != 1:
                 raise RuntimeError("Invalid platform routing")
+        if datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00")) > now:
+            queue_targets.extend((os.getenv(ch), entry["dueAt"]) for ch, _ in channel_specs)
         pending = [(os.getenv(ch), meta) for ch, meta in channel_specs
                    if not slot_has_post(os.environ["BUFFER_API_KEY"], org_id,
                                         os.getenv(ch), entry["dueAt"])]
@@ -231,6 +234,10 @@ def publish():
             post = create_video_post(os.environ["BUFFER_API_KEY"], channel_id, url,
                                      entry["story"]["caption"], entry["dueAt"], metadata)
             print(f"Scheduled channel {channel_id}: {post['id']} at {post['dueAt']}")
+
+    receipt = verify_scheduled_posts(os.environ["BUFFER_API_KEY"], org_id, queue_targets)
+    Path("output/queue-receipt.json").write_text(json.dumps(receipt, indent=2))
+    print(f"Read-back verified {len(receipt)} scheduled Buffer posts", flush=True)
 
 
 def main():
