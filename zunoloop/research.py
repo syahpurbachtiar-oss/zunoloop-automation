@@ -11,7 +11,9 @@ from xml.etree import ElementTree
 
 EXCLUDE = ("gempa", "bencana", "banjir", "kecelakaan", "meninggal", "war",
            "attack", "shooting", "death", "election", "politik", "scam",
-           "penipuan", "pembunuhan", "pelecehan", "porn", "bunuh", "suicide")
+           "penipuan", "pembunuhan", "pelecehan", "porn", "bunuh", "suicide",
+           "kpu", "pilkada", "pemilu", "partai", "dpr", "president", "presiden",
+           "cara mendapatkan uang", "how to make money", "cara menghasilkan uang")
 
 
 def platform_topics(platform, market, now):
@@ -38,6 +40,7 @@ def platform_topics(platform, market, now):
         # Keep the publisher separately; never confuse a headline with a ranking.
         title = title.rsplit(" - " + publisher, 1)[0] if publisher else title
         if (not title or len(title) > 100 or platform not in title.casefold()
+                or not any(word in title.casefold() for word in ("viral", "trending", "tren ", "trend "))
                 or not source.startswith("https://")
                 or any(word in title.casefold() for word in EXCLUDE)
                 or title.casefold() in seen):
