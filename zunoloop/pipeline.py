@@ -130,6 +130,41 @@ def plan(now):
     return entries
 
 
+def recover_missed_slots(entries, output, now):
+    """Move only unfinished late videos, preserving completed media and other slots."""
+    for entry in entries:
+        if not timedelta(0) <= trend_age(entry["trend"], now) <= timedelta(hours=36):
+            raise RuntimeError("Resume manifest is stale; fresh research required")
+    reserved = {(e.get("platform", e["language"]), e["dueAt"]) for e in entries}
+    for entry in entries:
+        due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
+        ready = (entry.get("generator") == "agnes-video-2.5-flash"
+                 and entry.get("file") and (output / entry["file"]).is_file()
+                 and (output / entry["file"]).stat().st_size > 30_000)
+        if ready or due > now + timedelta(minutes=15):
+            continue
+        platform = entry.get("platform", entry["language"])
+        hours = (6, 8) if entry["language"] == "en" else (12, 18, 20)
+        local = now.astimezone(ZoneInfo("Asia/Jakarta"))
+        replacement = None
+        for day in range(3):
+            for hour in hours:
+                candidate = datetime.combine(local.date() + timedelta(days=day),
+                                             time(hour), ZoneInfo("Asia/Jakarta"))
+                stamp = candidate.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+                if candidate > now + timedelta(hours=2) and (platform, stamp) not in reserved:
+                    replacement = stamp
+                    break
+            if replacement:
+                break
+        if not replacement:
+            raise RuntimeError("No unoccupied recovery slot")
+        print(f"Recovering missed {platform} slot {entry['dueAt']} -> {replacement}", flush=True)
+        entry["originalDueAt"] = entry.get("originalDueAt", entry["dueAt"])
+        entry["dueAt"] = replacement
+        reserved.add((platform, replacement))
+
+
 def prepare():
     now = datetime.now(timezone.utc)
     output = Path("output")
@@ -139,13 +174,8 @@ def prepare():
         entries = json.loads(manifest.read_text())
         if not valid_batch(entries):
             raise RuntimeError("Invalid resume manifest")
-        for entry in entries:
-            age = trend_age(entry["trend"], now)
-            due = datetime.fromisoformat(entry["dueAt"].replace("Z", "+00:00"))
-            ready = (entry.get("generator") == "agnes-video-2.5-flash"
-                     and entry.get("file") and (output / entry["file"]).is_file())
-            if not timedelta(0) <= age <= timedelta(hours=36) or (not ready and due <= now + timedelta(minutes=15)):
-                raise RuntimeError("Resume manifest is stale; fresh research required")
+        recover_missed_slots(entries, output, now)
+        manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
     else:
         entries = plan(now)
         manifest.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
