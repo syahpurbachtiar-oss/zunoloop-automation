@@ -1,0 +1,51 @@
+name: Verify Buffer video batch
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Completed production run ID
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    env:
+      BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      BUFFER_INSTAGRAM_CHANNEL_ID: ${{ vars.BUFFER_INSTAGRAM_CHANNEL_ID }}
+      BUFFER_TIKTOK_CHANNEL_ID: ${{ vars.BUFFER_TIKTOK_CHANNEL_ID }}
+      BUFFER_YOUTUBE_CHANNEL_ID: ${{ vars.BUFFER_YOUTUBE_CHANNEL_ID }}
+      SOURCE_RUN: ${{ inputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate run identifier
+        run: '[[ "$SOURCE_RUN" =~ ^[0-9]+$ ]]'
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id }}
+          name: zunoloop-${{ inputs.run_id }}
+          path: output
+      - name: Read back six exact Buffer slots
+        run: |
+          python - <<'PY'
+          import os, json
+          from pathlib import Path
+          from zunoloop.buffer import organization_for_channels, verify_scheduled_posts
+          channels = {os.environ['BUFFER_'+p.upper()+'_CHANNEL_ID']: p for p in ('instagram','tiktok','youtube')}
+          key = os.environ['BUFFER_API_KEY']
+          org = organization_for_channels(key, channels)
+          entries = json.loads(Path('output/manifest.json').read_text())
+          if len(entries) != 6 or any(not e.get('file') for e in entries):
+              raise RuntimeError('Expected six completed video entries')
+          targets = [(os.environ['BUFFER_'+e['platform'].upper()+'_CHANNEL_ID'], e['dueAt']) for e in entries]
+          receipt = verify_scheduled_posts(key, org, targets)
+          Path('queue-receipt.json').write_text(json.dumps(receipt, indent=2))
+          print('Verified six unique scheduled posts in Buffer')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: buffer-queue-receipt
+          path: queue-receipt.json
