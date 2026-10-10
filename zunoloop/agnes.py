@@ -148,12 +148,17 @@ def generate_video(visual_prompt, destination):
     video_id = data.get("video_id")
     if not video_id:
         raise RuntimeError("Agnes did not return a video_id")
+    print(f"Agnes accepted video job {video_id}", flush=True)
+    previous_status = None
     deadline = time.monotonic() + 900
     while time.monotonic() < deadline:
         time.sleep(15)
         result = request_json("/agnesapi?" + urlencode({"video_id": video_id,
                                                          "model_name": model}))
         status = str(result.get("status", "")).lower()
+        if status != previous_status:
+            print(f"Agnes job {video_id}: {status}", flush=True)
+            previous_status = status
         if status in ("failed", "error", "cancelled"):
             raise RuntimeError("Agnes video generation failed")
         if status in ("completed", "succeeded", "success", "done"):
@@ -162,7 +167,8 @@ def generate_video(visual_prompt, destination):
                 raise RuntimeError("Agnes completion has no HTTPS video URL")
             destination = Path(destination)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            with urlopen(Request(video_url), timeout=120) as source, destination.open("wb") as out:
+            partial = destination.with_suffix(destination.suffix + ".part")
+            with urlopen(Request(video_url), timeout=120) as source, partial.open("wb") as out:
                 for _ in range(128):
                     chunk = source.read(1024 * 1024)
                     if not chunk:
@@ -170,8 +176,9 @@ def generate_video(visual_prompt, destination):
                     out.write(chunk)
                 else:
                     raise RuntimeError("Agnes video exceeds 128 MiB")
-            if destination.stat().st_size < 20_000:
+            if partial.stat().st_size < 20_000:
                 raise RuntimeError("Agnes video download is incomplete")
+            partial.replace(destination)
             return
     raise TimeoutError("Agnes video was not ready within 15 minutes")
 
