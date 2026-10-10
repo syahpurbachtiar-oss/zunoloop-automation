@@ -1,0 +1,182 @@
+name: ZunoLoop recover saved videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_plan:
+        description: Optional reviewed plans JSON path
+        required: false
+        type: string
+      publish_ready:
+        description: Publish completed videos from a prior run without generating again
+        required: false
+        type: boolean
+        default: false
+      refresh_voice:
+        description: Upgrade unposted media to neural voice and word subtitles
+        type: boolean
+        default: false
+      resume_run_id:
+        description: Optional prior run with incomplete Agnes videos
+        required: false
+        type: string
+  workflow_run:
+    workflows: ['ZunoLoop daily video pipeline']
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: zunoloop-daily
+  cancel-in-progress: false
+
+jobs:
+  create:
+    # Recover trusted main-branch failures; successful runs never start a recovery chain.
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    outputs:
+      skip: ${{ steps.recovery.outputs.skip }}
+    timeout-minutes: 100
+    permissions:
+      actions: read
+      contents: read
+    env:
+      AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
+      PYTHONUNBUFFERED: '1'
+      REVIEWED_PLAN: ${{ inputs.reviewed_plan }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select saved batch for automatic recovery
+        id: recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          INPUT_RESUME: ${{ inputs.resume_run_id }}
+          INPUT_PUBLISH: ${{ inputs.publish_ready }}
+        run: python3 -m zunoloop.recovery
+      - uses: actions/setup-python@v5
+        if: steps.recovery.outputs.skip != 'true'
+        with:
+          python-version: '3.12'
+      - name: Install video tools
+        if: steps.recovery.outputs.skip != 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+      - name: Install Python packages
+        if: steps.recovery.outputs.skip != 'true'
+        run: python -m pip install -r requirements.txt
+      - name: Verify platform routing and research safeguards
+        if: steps.recovery.outputs.skip != 'true'
+        run: python -m unittest discover -s tests -v
+      - name: Validate prior run identifier
+        if: steps.recovery.outputs.resume != ''
+        env:
+          RESUME_RUN_ID: ${{ steps.recovery.outputs.resume }}
+        run: |
+          [[ "$RESUME_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+      - uses: actions/download-artifact@v4
+        if: steps.recovery.outputs.resume != ''
+        with:
+          name: zunoloop-${{ steps.recovery.outputs.resume }}
+          path: output/
+          run-id: ${{ steps.recovery.outputs.resume }}
+          github-token: ${{ github.token }}
+      - name: Refresh narration and subtitles
+        if: inputs.refresh_voice == true
+        run: python -m zunoloop.refresh
+      - name: Research and generate six platform-specific Agnes videos
+        if: steps.recovery.outputs.skip != 'true' && steps.recovery.outputs.publish_ready != 'true' && inputs.refresh_voice != true
+        run: python -m zunoloop.pipeline
+      - name: Keep previews for review
+        if: always() && steps.recovery.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: zunoloop-${{ github.run_id }}
+          path: output/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  publish:
+    if: always() && !cancelled() && needs.create.outputs.skip != 'true' && vars.LIVE_PUBLISH == 'true' && (needs.create.result == 'success' || needs.create.result == 'failure')
+    needs: create
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      BUFFER_INSTAGRAM_CHANNEL_ID: ${{ vars.BUFFER_INSTAGRAM_CHANNEL_ID }}
+      BUFFER_TIKTOK_CHANNEL_ID: ${{ vars.BUFFER_TIKTOK_CHANNEL_ID }}
+      BUFFER_YOUTUBE_CHANNEL_ID: ${{ vars.BUFFER_YOUTUBE_CHANNEL_ID }}
+      LIVE_PUBLISH: ${{ vars.LIVE_PUBLISH }}
+      REFRESH_VOICE: ${{ inputs.refresh_voice }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install publisher dependencies
+        run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: zunoloop-${{ github.run_id }}
+          path: output/
+      - name: Keep a week of public videos
+        run: |
+          mkdir -p site/media
+          cp output/*.mp4 site/media/
+          python - <<'PY'
+          from datetime import date, timedelta
+          from pathlib import Path
+          cutoff = date.today() - timedelta(days=7)
+          for video in Path('site/media').glob('*.mp4'):
+              try:
+                  if date.fromisoformat(video.name[:10]) < cutoff:
+                      video.unlink()
+              except ValueError:
+                  raise RuntimeError('Unexpected media filename: ' + video.name)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add site/media
+          if ! git diff --cached --quiet; then git commit -m "Update public ZunoLoop video media" && git pull --rebase origin main && git push; fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Schedule completed videos via Buffer
+        env:
+          MEDIA_BASE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsSI "${MEDIA_BASE_URL%/}/media/$(find output -maxdepth 1 -name '*.mp4' -printf '%f\n' | head -1)" >/dev/null; then break; fi
+            sleep 10
+          done
+          for attempt in 1 2 3 4 5 6; do
+            if [ "$REFRESH_VOICE" = "true" ]; then
+              if python -m zunoloop.refresh --publish; then exit 0; fi
+            else
+              if python -m zunoloop.pipeline --publish; then exit 0; fi
+            fi
+            if [ "$attempt" -eq 6 ]; then break; fi
+            echo "Buffer attempt $attempt failed; checking existing slots before retrying"
+            sleep 30
+          done
+          exit 1
+      - name: Preserve publication receipt and recovered slots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zunoloop-${{ github.run_id }}
+          path: output/
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: ignore
+
