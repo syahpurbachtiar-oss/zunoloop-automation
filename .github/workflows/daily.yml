@@ -20,11 +20,6 @@ on:
         description: Optional prior run with incomplete Agnes videos
         required: false
         type: string
-  schedule:
-    # Start fresh research and generation at 12:00 WIB for subsequent posting slots.
-    - cron: '0 5 * * *'
-    # Recover unfinished work without creating another daily batch.
-    - cron: '7,37 * * * *'
 
 concurrency:
   group: zunoloop-daily
